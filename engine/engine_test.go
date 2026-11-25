@@ -2,8 +2,6 @@ package engine
 
 import (
 	"testing"
-
-	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 type mockComponent struct {
@@ -28,11 +26,11 @@ func (m *mockComponent) Destroy() {
 
 func TestGameObjectHierarchyAndTransforms(t *testing.T) {
 	parent := NewGameObject("parent", "ParentNode")
-	parent.Transform.Position = rl.NewVector3(10, 0, 0)
-	parent.Transform.Scale = rl.NewVector3(2, 2, 2)
+	parent.Transform.Position = NewVector3(10, 0, 0)
+	parent.Transform.Scale = NewVector3(2, 2, 2)
 
 	child := NewGameObject("child", "ChildNode")
-	child.Transform.Position = rl.NewVector3(5, 0, 0)
+	child.Transform.Position = NewVector3(5, 0, 0)
 	parent.AddChild(child)
 
 	if child.Parent != parent {
