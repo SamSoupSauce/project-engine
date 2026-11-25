@@ -17,11 +17,13 @@ Core engine primitives with zero dependencies on gameplay systems:
 - **`Engine`**: Main game loop managing window initialization, delta timing, scene transitions, and graceful shutdown.
 
 ### 2. `pkg/luabridge` (`github.com/SamSoupSauce/project-engine/pkg/luabridge`)
-Extensible Lua 5.1 runtime integration:
-- **`LuaBridge`**: Thread-safe bridge separating execution lock (`stateMu`) from data lookups (`dataMu`).
+Extensible Lua 5.1 / LuaJIT 2.1 runtime integration:
+- **`LuaBridge` & `LuaJITBridge`**: Thread-safe runtime bridges with zero-allocation C-FFI `ImDrawList` exports and `jit.v`/`jit.dump` profiling support.
 - **Command & Hook System**: Register custom engine/gameplay commands and input hooks cleanly without tight coupling.
-- **Game Object Exposer**: Reflect `GameObject` positions, rotations, and hierarchy into the Lua state for scripting.
+- **Game Object & UI Exposer**: Reflect `GameObject` transforms, `Renderable2D` HUD mutations, and FFI UI layouts into Lua.
 - **`Console`**: Interactive REPL developer console with history navigation, line buffer management, and log routing.
+
+> **Mandatory Reading for Script Contributors:** See [Scripting Standards & Zero-Allocation Guide](docs/scripting_standards.md) before writing or modifying engine/UI Lua scripts.
 
 ### 3. `pkg/tileimporter` (`github.com/SamSoupSauce/project-engine/pkg/tileimporter`)
 Robust 2D TMX to 3D world voxel/mesh importer:

@@ -1,7 +1,5 @@
 github.com/AllenDang/cimgui-go v1.6.1 h1:vhQOANkZSs2tm53zPe/HBQW3vln0ZuW3/vqHRsAPPn8=
 github.com/AllenDang/cimgui-go v1.6.1/go.mod h1:97bmd2B2Y0+uCePDqGSLcM5Dbpwt11yaGgQphz89USY=
-github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
-github.com/ebitengine/purego v0.10.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 github.com/ebitengine/purego v0.11.0 h1:jhp/D+Nyv7UUW8HAcmcjt2N2rYrYi9m3SL21k0Ua/NI=
 github.com/ebitengine/purego v0.11.0/go.mod h1:DCHPP08djqhNSoTfImcnHYQRZmd0qhakvrozqaEYhGQ=
 github.com/gen2brain/raylib-go/raylib v0.62.2 h1:3HsX6KorXi//aO2u5ZpXO0TVGs6jY01dD88mH1WU58Q=
