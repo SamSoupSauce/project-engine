@@ -184,4 +184,72 @@ func (b *LuaBridge) registerStandardEngineAPIs() {
 		L.Push(lua.LTrue)
 		return 1
 	}))
+
+	// set_ui_size(name, width, height)
+	b.L.SetGlobal("set_ui_size", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := b.lookupRenderable2D(L.CheckString(1))
+		if r2d == nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		r2d.Size = engine.NewVector2(float32(L.CheckNumber(2)), float32(L.CheckNumber(3)))
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// set_ui_visible(name, visible)
+	b.L.SetGlobal("set_ui_visible", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := b.lookupRenderable2D(L.CheckString(1))
+		if r2d == nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		r2d.SetVisible(L.CheckBool(2))
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// set_ui_color(name, r, g, b, a)
+	b.L.SetGlobal("set_ui_color", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := b.lookupRenderable2D(L.CheckString(1))
+		if r2d == nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		r2d.Color = engine.NewColor(
+			uint8(L.CheckInt(2)),
+			uint8(L.CheckInt(3)),
+			uint8(L.CheckInt(4)),
+			uint8(L.OptInt(5, 255)),
+		)
+		L.Push(lua.LTrue)
+		return 1
+	}))
+
+	// set_ui_uv(name, u, v, w, h)
+	b.L.SetGlobal("set_ui_uv", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := b.lookupRenderable2D(L.CheckString(1))
+		if r2d == nil {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		r2d.SourceRect = engine.Rect2D{
+			U: float32(L.CheckNumber(2)),
+			V: float32(L.CheckNumber(3)),
+			W: float32(L.CheckNumber(4)),
+			H: float32(L.CheckNumber(5)),
+		}
+		L.Push(lua.LTrue)
+		return 1
+	}))
+}
+
+func (b *LuaBridge) lookupRenderable2D(name string) *engine.Renderable2D {
+	b.dataMu.RLock()
+	obj, ok := b.objects[name]
+	b.dataMu.RUnlock()
+	if !ok || obj == nil {
+		return nil
+	}
+	return findRenderable2D(obj)
 }

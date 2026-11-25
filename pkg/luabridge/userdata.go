@@ -4,19 +4,20 @@ import (
 	"fmt"
 	"reflect"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
 )
 
 const (
-	luaGameObjectTypeName = "GameObject"
-	luaSceneTypeName      = "Scene"
+	luaGameObjectTypeName   = "GameObject"
+	luaSceneTypeName        = "Scene"
+	luaRenderable2DTypeName = "Renderable2D"
 )
 
 func (b *LuaBridge) registerEngineTypes() {
 	b.registerGameObjectType()
 	b.registerSceneType()
+	b.registerRenderable2DType()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -252,6 +253,21 @@ func gameObjectMethods() map[string]lua.LGFunction {
 				tbl.RawSetInt(i+1, gameObjectToUserData(L, child))
 			}
 			L.Push(tbl)
+			return 1
+		},
+		"GetRenderable2D": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			pushRenderable2D(L, findRenderable2D(obj))
+			return 1
+		},
+		"AddRenderable2D": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			texID := uint32(L.OptInt(2, 0))
+			w := float32(L.OptNumber(3, 64))
+			h := float32(L.OptNumber(4, 64))
+			r2d := engine.NewRenderable2D(texID, w, h)
+			obj.AddComponent(r2d)
+			pushRenderable2D(L, r2d)
 			return 1
 		},
 	}
@@ -513,7 +529,7 @@ func scenesEqual(a, b engine.Scene) bool {
 	return a == b
 }
 
-func vec3ToTable(L *lua.LState, v rl.Vector3) *lua.LTable {
+func vec3ToTable(L *lua.LState, v engine.Vector3) *lua.LTable {
 	tbl := L.NewTable()
 	tbl.RawSetString("x", lua.LNumber(v.X))
 	tbl.RawSetString("y", lua.LNumber(v.Y))
@@ -521,22 +537,22 @@ func vec3ToTable(L *lua.LState, v rl.Vector3) *lua.LTable {
 	return tbl
 }
 
-func tableToVec3(L *lua.LState, tbl *lua.LTable) rl.Vector3 {
-	return rl.NewVector3(
+func tableToVec3(L *lua.LState, tbl *lua.LTable) engine.Vector3 {
+	return engine.NewVector3(
 		float32(luaNumberField(tbl, "x")),
 		float32(luaNumberField(tbl, "y")),
 		float32(luaNumberField(tbl, "z")),
 	)
 }
 
-func parseVec3Args(L *lua.LState, startIdx int) rl.Vector3 {
+func parseVec3Args(L *lua.LState, startIdx int) engine.Vector3 {
 	if tbl, ok := L.Get(startIdx).(*lua.LTable); ok {
 		return tableToVec3(L, tbl)
 	}
 	x := float32(L.CheckNumber(startIdx))
 	y := float32(L.CheckNumber(startIdx + 1))
 	z := float32(L.CheckNumber(startIdx + 2))
-	return rl.NewVector3(x, y, z)
+	return engine.NewVector3(x, y, z)
 }
 
 func luaNumberField(tbl *lua.LTable, key string) float64 {
@@ -655,5 +671,272 @@ func goValueToLua(L *lua.LState, val any) lua.LValue {
 		return tbl
 	default:
 		return lua.LString(fmt.Sprintf("%v", v))
+	}
+}
+
+func (b *LuaBridge) registerRenderable2DType() {
+	mt := b.L.NewTypeMetatable(luaRenderable2DTypeName)
+
+	methods := b.L.NewTable()
+	for name, fn := range renderable2DMethods() {
+		b.L.SetField(methods, name, b.L.NewFunction(fn))
+	}
+
+	b.L.SetField(mt, "__index", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := checkRenderable2D(L, 1)
+		key := L.CheckString(2)
+
+		if fn := methods.RawGetString(key); fn != lua.LNil {
+			L.Push(fn)
+			return 1
+		}
+
+		switch key {
+		case "width", "Width":
+			L.Push(lua.LNumber(r2d.Size.X))
+		case "height", "Height":
+			L.Push(lua.LNumber(r2d.Size.Y))
+		case "size", "Size":
+			L.Push(vec2ToTable(L, r2d.Size))
+		case "color", "Color":
+			L.Push(colorToTable(L, r2d.Color))
+		case "uv", "source_rect", "SourceRect":
+			L.Push(rect2DToTable(L, r2d.SourceRect))
+		case "visible", "Visible":
+			L.Push(lua.LBool(r2d.IsVisible()))
+		case "z_index", "zindex", "ZIndex":
+			L.Push(lua.LNumber(r2d.ZIndex))
+		case "texture_id", "TextureID":
+			L.Push(lua.LNumber(r2d.TextureID))
+		case "anchor", "Anchor":
+			L.Push(lua.LNumber(r2d.Anchor))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+
+	b.L.SetField(mt, "__newindex", b.L.NewFunction(func(L *lua.LState) int {
+		r2d := checkRenderable2D(L, 1)
+		key := L.CheckString(2)
+
+		switch key {
+		case "width", "Width":
+			r2d.Size.X = float32(L.CheckNumber(3))
+		case "height", "Height":
+			r2d.Size.Y = float32(L.CheckNumber(3))
+		case "size", "Size":
+			r2d.Size = tableToVec2(L.CheckTable(3))
+		case "color", "Color":
+			r2d.Color = tableToColor(L.CheckTable(3))
+		case "uv", "source_rect", "SourceRect":
+			r2d.SourceRect = tableToRect2D(L.CheckTable(3))
+		case "visible", "Visible":
+			r2d.SetVisible(L.CheckBool(3))
+		case "z_index", "zindex", "ZIndex":
+			r2d.ZIndex = int32(L.CheckInt(3))
+		case "texture_id", "TextureID":
+			r2d.TextureID = uint32(L.CheckInt(3))
+		case "anchor", "Anchor":
+			r2d.Anchor = engine.Anchor2D(L.CheckInt(3))
+		default:
+			L.RaiseError("Renderable2D has no writable property %q", key)
+		}
+		return 0
+	}))
+}
+
+func renderable2DMethods() map[string]lua.LGFunction {
+	return map[string]lua.LGFunction{
+		"SetSize": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.Size = engine.NewVector2(float32(L.CheckNumber(2)), float32(L.CheckNumber(3)))
+			return 0
+		},
+		"GetSize": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(vec2ToTable(L, r2d.Size))
+			return 1
+		},
+		"SetWidth": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.Size.X = float32(L.CheckNumber(2))
+			return 0
+		},
+		"GetWidth": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LNumber(r2d.Size.X))
+			return 1
+		},
+		"SetHeight": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.Size.Y = float32(L.CheckNumber(2))
+			return 0
+		},
+		"GetHeight": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LNumber(r2d.Size.Y))
+			return 1
+		},
+		"SetColor": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.Color = engine.NewColor(
+				uint8(L.CheckInt(2)),
+				uint8(L.CheckInt(3)),
+				uint8(L.CheckInt(4)),
+				uint8(L.OptInt(5, 255)),
+			)
+			return 0
+		},
+		"GetColor": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(colorToTable(L, r2d.Color))
+			return 1
+		},
+		"SetUV": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.SourceRect = engine.Rect2D{
+				U: float32(L.CheckNumber(2)),
+				V: float32(L.CheckNumber(3)),
+				W: float32(L.CheckNumber(4)),
+				H: float32(L.CheckNumber(5)),
+			}
+			return 0
+		},
+		"GetUV": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(rect2DToTable(L, r2d.SourceRect))
+			return 1
+		},
+		"SetVisible": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.SetVisible(L.CheckBool(2))
+			return 0
+		},
+		"IsVisible": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LBool(r2d.IsVisible()))
+			return 1
+		},
+		"SetZIndex": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.ZIndex = int32(L.CheckInt(2))
+			return 0
+		},
+		"GetZIndex": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LNumber(r2d.ZIndex))
+			return 1
+		},
+		"SetTextureID": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.TextureID = uint32(L.CheckInt(2))
+			return 0
+		},
+		"GetTextureID": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LNumber(r2d.TextureID))
+			return 1
+		},
+		"SetAnchor": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			r2d.Anchor = engine.Anchor2D(L.CheckInt(2))
+			return 0
+		},
+		"GetAnchor": func(L *lua.LState) int {
+			r2d := checkRenderable2D(L, 1)
+			L.Push(lua.LNumber(r2d.Anchor))
+			return 1
+		},
+	}
+}
+
+func findRenderable2D(obj *engine.GameObject) *engine.Renderable2D {
+	if obj == nil {
+		return nil
+	}
+	comp := obj.GetComponent(reflect.TypeOf((*engine.Renderable2D)(nil)))
+	if r2d, ok := comp.(*engine.Renderable2D); ok {
+		return r2d
+	}
+	return nil
+}
+
+func pushRenderable2D(L *lua.LState, r2d *engine.Renderable2D) {
+	if r2d == nil {
+		L.Push(lua.LNil)
+		return
+	}
+	ud := L.NewUserData()
+	ud.Value = r2d
+	L.SetMetatable(ud, L.GetTypeMetatable(luaRenderable2DTypeName))
+	L.Push(ud)
+}
+
+func checkRenderable2D(L *lua.LState, idx int) *engine.Renderable2D {
+	ud := L.CheckUserData(idx)
+	if r2d, ok := ud.Value.(*engine.Renderable2D); ok && r2d != nil {
+		return r2d
+	}
+	L.ArgError(idx, "Renderable2D expected")
+	return nil
+}
+
+func vec2ToTable(L *lua.LState, v engine.Vector2) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("width", lua.LNumber(v.X))
+	tbl.RawSetString("height", lua.LNumber(v.Y))
+	tbl.RawSetString("x", lua.LNumber(v.X))
+	tbl.RawSetString("y", lua.LNumber(v.Y))
+	return tbl
+}
+
+func tableToVec2(tbl *lua.LTable) engine.Vector2 {
+	w := float32(luaNumberField(tbl, "width"))
+	h := float32(luaNumberField(tbl, "height"))
+	if w == 0 && h == 0 {
+		w = float32(luaNumberField(tbl, "x"))
+		h = float32(luaNumberField(tbl, "y"))
+	}
+	return engine.NewVector2(w, h)
+}
+
+func colorToTable(L *lua.LState, c engine.Color) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("r", lua.LNumber(c.R))
+	tbl.RawSetString("g", lua.LNumber(c.G))
+	tbl.RawSetString("b", lua.LNumber(c.B))
+	tbl.RawSetString("a", lua.LNumber(c.A))
+	return tbl
+}
+
+func tableToColor(tbl *lua.LTable) engine.Color {
+	a := uint8(255)
+	if tbl.RawGetString("a") != lua.LNil {
+		a = uint8(luaNumberField(tbl, "a"))
+	}
+	return engine.NewColor(
+		uint8(luaNumberField(tbl, "r")),
+		uint8(luaNumberField(tbl, "g")),
+		uint8(luaNumberField(tbl, "b")),
+		a,
+	)
+}
+
+func rect2DToTable(L *lua.LState, r engine.Rect2D) *lua.LTable {
+	tbl := L.NewTable()
+	tbl.RawSetString("u", lua.LNumber(r.U))
+	tbl.RawSetString("v", lua.LNumber(r.V))
+	tbl.RawSetString("w", lua.LNumber(r.W))
+	tbl.RawSetString("h", lua.LNumber(r.H))
+	return tbl
+}
+
+func tableToRect2D(tbl *lua.LTable) engine.Rect2D {
+	return engine.Rect2D{
+		U: float32(luaNumberField(tbl, "u")),
+		V: float32(luaNumberField(tbl, "v")),
+		W: float32(luaNumberField(tbl, "w")),
+		H: float32(luaNumberField(tbl, "h")),
 	}
 }

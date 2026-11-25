@@ -2,8 +2,6 @@ package engine
 
 import (
 	"sync"
-
-	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 // DefaultTickIntervalMs is the default fixed simulation tick interval in milliseconds.
@@ -14,7 +12,7 @@ const DefaultTickIntervalMs = 16
 type BaseScene struct {
 	Name           string
 	Root           *GameObject
-	Camera         rl.Camera3D
+	Camera         Camera3D
 	TickIntervalMs int
 
 	loaded      bool
@@ -29,12 +27,12 @@ func NewBaseScene(name string) *BaseScene {
 		Name:           name,
 		Root:           root,
 		TickIntervalMs: DefaultTickIntervalMs,
-		Camera: rl.Camera3D{
-			Position:   rl.NewVector3(0, 10, 10),
-			Target:     rl.NewVector3(0, 0, 0),
-			Up:         rl.NewVector3(0, 1, 0),
+		Camera: Camera3D{
+			Position:   NewVector3(0, 10, 10),
+			Target:     NewVector3(0, 0, 0),
+			Up:         NewVector3(0, 1, 0),
 			Fovy:       45,
-			Projection: rl.CameraPerspective,
+			Projection: CameraPerspective,
 		},
 	}
 	root.SetScene(s)
@@ -127,7 +125,7 @@ func (s *BaseScene) Draw3D() {}
 func (s *BaseScene) Draw2D() {}
 
 // GetCamera returns the scene's active 3D camera.
-func (s *BaseScene) GetCamera() rl.Camera3D {
+func (s *BaseScene) GetCamera() Camera3D {
 	return s.Camera
 }
 

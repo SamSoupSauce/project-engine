@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/SamSoupSauce/project-engine/engine"
 )
 
@@ -84,7 +83,7 @@ end
 	scene.TickIntervalMs = 16
 
 	hero := engine.NewGameObject("hero_1", "Hero")
-	hero.Transform.Position = rl.NewVector3(1, 2, 3)
+	hero.Transform.Position = engine.NewVector3(1, 2, 3)
 	heroScript, err := bridge.NewScriptComponent(scriptPath)
 	if err != nil {
 		t.Fatalf("failed to load script component: %v", err)
@@ -182,11 +181,11 @@ end
 	scene.TickIntervalMs = 10
 
 	objA := engine.NewGameObject("a", "Alpha")
-	objA.Transform.Position = rl.NewVector3(5, 0, 0)
+	objA.Transform.Position = engine.NewVector3(5, 0, 0)
 	bridge.RegisterGameObject("Alpha", objA)
 
 	objB := engine.NewGameObject("b", "Beta")
-	objB.Transform.Position = rl.NewVector3(99, 0, 0)
+	objB.Transform.Position = engine.NewVector3(99, 0, 0)
 	bridge.RegisterGameObject("Beta", objB)
 
 	scA, err := NewScriptComponent(bridge, scriptPath)
