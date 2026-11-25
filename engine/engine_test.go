@@ -127,3 +127,94 @@ func TestRenderableCascadeEvaluation(t *testing.T) {
 		t.Errorf("expected childB to override parent hiding, got %s", buffer.Commands[0].MeshID)
 	}
 }
+
+type mockScriptComponent struct {
+	owner   *GameObject
+	loads   int
+	unloads int
+	spawns  []any
+	events  []string
+	ticks   []int
+	despawn []any
+}
+
+func (m *mockScriptComponent) Init(owner *GameObject) { m.owner = owner }
+func (m *mockScriptComponent) Update(dt float32)      {}
+func (m *mockScriptComponent) Destroy()               { m.owner = nil }
+func (m *mockScriptComponent) OnLoad(s Scene)         { m.loads++ }
+func (m *mockScriptComponent) OnUnload(s Scene)       { m.unloads++ }
+func (m *mockScriptComponent) OnSpawn(sender any)     { m.spawns = append(m.spawns, sender) }
+func (m *mockScriptComponent) OnEvent(name string, sender *GameObject, data any) {
+	m.events = append(m.events, name)
+}
+func (m *mockScriptComponent) OnTick(dtMs int) { m.ticks = append(m.ticks, dtMs) }
+func (m *mockScriptComponent) OnDespawn(sender *GameObject, data any) {
+	m.despawn = append(m.despawn, sender)
+}
+
+func TestBaseSceneLifecycleAndTickAccumulator(t *testing.T) {
+	scene := NewBaseScene("TestScene")
+	scene.TickIntervalMs = 20
+
+	initialObj := NewGameObject("init_1", "Initial")
+	initScript := &mockScriptComponent{}
+	initialObj.AddComponent(initScript)
+	scene.AddObject(initialObj)
+
+	if scene.FindByID("init_1") != initialObj || scene.FindByName("Initial") != initialObj {
+		t.Fatalf("expected scene queries to locate initial object")
+	}
+
+	scene.Init()
+	if initScript.loads != 1 {
+		t.Fatalf("expected 1 OnLoad call, got %d", initScript.loads)
+	}
+	if len(initScript.spawns) != 1 || initScript.spawns[0] != scene {
+		t.Fatalf("expected initial spawn sender to be scene, got %+v", initScript.spawns)
+	}
+
+	// Accumulate 10ms (no tick yet), then 30ms (total 40ms -> 2 ticks of 20ms)
+	scene.Update(0.010)
+	if len(initScript.ticks) != 0 {
+		t.Fatalf("expected 0 ticks after 10ms, got %d", len(initScript.ticks))
+	}
+	scene.Update(0.030)
+	if len(initScript.ticks) != 2 || initScript.ticks[0] != 20 || initScript.ticks[1] != 20 {
+		t.Fatalf("expected two 20ms ticks, got %+v", initScript.ticks)
+	}
+
+	// Dynamic runtime spawn with GameObject sender
+	dynObj := NewGameObject("dyn_1", "Dynamic")
+	dynScript := &mockScriptComponent{}
+	dynObj.AddComponent(dynScript)
+	scene.Spawn(dynObj, initialObj)
+
+	if len(dynScript.spawns) != 1 || dynScript.spawns[0] != initialObj {
+		t.Fatalf("expected dynamic spawn sender to be initialObj, got %+v", dynScript.spawns)
+	}
+
+	// Event bus dispatch
+	initialObj.Emit("ping", map[string]any{"x": 1})
+	if len(initScript.events) != 1 || len(dynScript.events) != 1 {
+		t.Fatalf("expected both objects to receive scene event, got init=%v dyn=%v", initScript.events, dynScript.events)
+	}
+
+	// Despawn dynObj and ensure ticks no longer fire on it
+	scene.Despawn(dynObj, initialObj, nil)
+	if len(dynScript.despawn) != 1 || dynScript.despawn[0] != initialObj {
+		t.Fatalf("expected OnDespawn with initialObj sender, got %+v", dynScript.despawn)
+	}
+	if scene.FindByID("dyn_1") != nil {
+		t.Fatalf("expected despawned object to be removed from scene")
+	}
+
+	scene.Update(0.020)
+	if len(dynScript.ticks) != 0 {
+		t.Fatalf("expected despawned object not to receive ticks, got %+v", dynScript.ticks)
+	}
+
+	scene.Unload()
+	if initScript.unloads != 1 {
+		t.Fatalf("expected OnUnload on remaining object, got %d", initScript.unloads)
+	}
+}
