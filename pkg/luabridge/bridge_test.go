@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/SamSoupSauce/project-engine/engine"
 )
 
@@ -69,7 +68,7 @@ func TestLuaBridgeGameObjectBinding(t *testing.T) {
 	defer bridge.Close()
 
 	obj := engine.NewGameObject("player_1", "Player")
-	obj.Transform.Position = rl.NewVector3(12.5, 3.0, -8.0)
+	obj.Transform.Position = engine.NewVector3(12.5, 3.0, -8.0)
 	obj.Active = true
 
 	bridge.RegisterGameObject("Player", obj)

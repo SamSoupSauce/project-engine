@@ -1,9 +1,5 @@
 package engine
 
-import (
-	rl "github.com/gen2brain/raylib-go/raylib"
-)
-
 // PhysicsBodyType distinguishes dynamic, kinematic, and static bodies.
 type PhysicsBodyType int
 
@@ -18,23 +14,23 @@ const (
 type PhysicsBodyHandle interface {
 	GetID() string
 	GetBodyType() PhysicsBodyType
-	GetPosition() rl.Vector3
-	SetPosition(pos rl.Vector3)
-	GetRotation() rl.Vector3
-	SetRotation(rot rl.Vector3)
-	GetVelocity() rl.Vector3
-	SetVelocity(vel rl.Vector3)
+	GetPosition() Vector3
+	SetPosition(pos Vector3)
+	GetRotation() Vector3
+	SetRotation(rot Vector3)
+	GetVelocity() Vector3
+	SetVelocity(vel Vector3)
 	IsGrounded() bool
 	SetGrounded(grounded bool)
-	GetBoundingBox() rl.BoundingBox
+	GetBoundingBox() BoundingBox
 }
 
 // RaycastHit describes the outcome of an abstract raycast query.
 type RaycastHit struct {
 	Hit      bool
 	Distance float32
-	Point    rl.Vector3
-	Normal   rl.Vector3
+	Point    Vector3
+	Normal   Vector3
 	BodyID   string
 }
 
@@ -44,7 +40,7 @@ type PhysicsWorldHandle interface {
 	AddBody(body PhysicsBodyHandle)
 	RemoveBody(id string)
 	GetBody(id string) PhysicsBodyHandle
-	Raycast(ray rl.Ray, maxDistance float32) RaycastHit
-	SetGravity(gravity rl.Vector3)
-	GetGravity() rl.Vector3
+	Raycast(ray Ray, maxDistance float32) RaycastHit
+	SetGravity(gravity Vector3)
+	GetGravity() Vector3
 }

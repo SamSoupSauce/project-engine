@@ -1,9 +1,5 @@
 package engine
 
-import (
-	rl "github.com/gen2brain/raylib-go/raylib"
-)
-
 // RenderFlags defines pipeline configuration bitmasks for rendering entities.
 type RenderFlags uint32
 
@@ -29,9 +25,9 @@ type Renderable struct {
 	MeshID     string      // GPU buffer or primitive mesh handle (e.g. "cube", "quad", "mesh_42")
 	MaterialID string      // Shader/pipeline state handle (e.g. "default", "unlit", "siding")
 	Flags      RenderFlags // Pipeline bitmask
-	Color      rl.Color    // Surface base tint
-	WireColor  rl.Color    // Wireframe contour color
-	CustomSize *rl.Vector3 // Optional explicit dimensions (overriding mesh defaults)
+	Color      Color       // Surface base tint
+	WireColor  Color       // Wireframe contour color
+	CustomSize *Vector3    // Optional explicit dimensions (overriding mesh defaults)
 
 	Owner *GameObject
 }
@@ -42,8 +38,8 @@ func NewRenderable(meshID, materialID string) *Renderable {
 		MeshID:     meshID,
 		MaterialID: materialID,
 		Flags:      FlagVisible | FlagCastShadow,
-		Color:      rl.White,
-		WireColor:  rl.Black,
+		Color:      White,
+		WireColor:  Black,
 	}
 }
 
@@ -68,9 +64,9 @@ type DrawCommand struct {
 	MeshID         string
 	MaterialID     string
 	Flags          RenderFlags
-	Color          rl.Color
-	WireColor      rl.Color
-	CustomSize     *rl.Vector3
+	Color          Color
+	WireColor      Color
+	CustomSize     *Vector3
 }
 
 // RenderPassBuffer manages a reusable, allocation-free slice of DrawCommands across frames.

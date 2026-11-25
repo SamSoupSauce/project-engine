@@ -1,7 +1,7 @@
 package engine
 
 import (
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
 // Scene defines the contract for scenes hosted within the engine.
@@ -10,7 +10,7 @@ type Scene interface {
 	Update(dt float32)
 	Draw3D()
 	Draw2D()
-	GetCamera() rl.Camera3D
+	GetCamera() Camera3D
 	Unload()
 }
 
@@ -20,7 +20,7 @@ type Config struct {
 	Height     int32
 	Title      string
 	TargetFPS  int32
-	ClearColor rl.Color
+	ClearColor Color
 	EnableMSAA bool
 	Resizable  bool
 }
@@ -32,7 +32,7 @@ func DefaultConfig() Config {
 		Height:     720,
 		Title:      "Project Engine - 3D Runtime",
 		TargetFPS:  60,
-		ClearColor: rl.NewColor(10, 14, 22, 255),
+		ClearColor: NewColor(10, 14, 22, 255),
 		EnableMSAA: true,
 		Resizable:  true,
 	}
@@ -42,13 +42,16 @@ func DefaultConfig() Config {
 type Engine struct {
 	Config      Config
 	ActiveScene Scene
+	Overlay     *ImGuiOverlay
+	App         *GLApp
 	IsRunning   bool
 }
 
 // NewEngine initializes an Engine instance.
 func NewEngine(cfg Config) *Engine {
 	return &Engine{
-		Config: cfg,
+		Config:  cfg,
+		Overlay: NewImGuiOverlay(),
 	}
 }
 
@@ -58,60 +61,60 @@ func (e *Engine) SetScene(s Scene) {
 		e.ActiveScene.Unload()
 	}
 	e.ActiveScene = s
+	if e.App != nil {
+		e.App.Scene = s
+	}
 	if e.ActiveScene != nil && e.IsRunning {
 		e.ActiveScene.Init()
 	}
 }
 
-// Run boots the window and drives the main rendering and simulation loop.
-func (e *Engine) Run() {
-	var flags uint32 = rl.FlagVsyncHint
-	if e.Config.EnableMSAA {
-		flags |= rl.FlagMsaa4xHint
-	}
-	if e.Config.Resizable {
-		flags |= rl.FlagWindowResizable
+// Run boots the GLFW + OpenGL 3 window and drives the main rendering, scene, and ImGui overlay loop.
+func (e *Engine) Run() error {
+	winCfg := GLWindowConfig{
+		Width:     int(e.Config.Width),
+		Height:    int(e.Config.Height),
+		Title:     e.Config.Title,
+		Visible:   true,
+		Resizable: e.Config.Resizable,
+		VSync:     e.Config.TargetFPS > 0,
+		ClearRGB: [4]float32{
+			float32(e.Config.ClearColor.R) / 255.0,
+			float32(e.Config.ClearColor.G) / 255.0,
+			float32(e.Config.ClearColor.B) / 255.0,
+			float32(e.Config.ClearColor.A) / 255.0,
+		},
 	}
 
-	rl.SetConfigFlags(flags)
-	rl.InitWindow(e.Config.Width, e.Config.Height, e.Config.Title)
-	defer rl.CloseWindow()
+	if e.Overlay == nil {
+		e.Overlay = NewImGuiOverlay()
+	}
 
-	rl.SetTargetFPS(e.Config.TargetFPS)
+	e.App = NewGLApp(winCfg, e.ActiveScene, e.Overlay)
+	if err := e.App.InitWindow(); err != nil {
+		return err
+	}
+	defer func() {
+		e.IsRunning = false
+		if e.ActiveScene != nil {
+			e.ActiveScene.Unload()
+		}
+		e.App.Close()
+		e.App = nil
+	}()
+
 	e.IsRunning = true
-
 	if e.ActiveScene != nil {
 		e.ActiveScene.Init()
 	}
 
-	for !rl.WindowShouldClose() {
-		if rl.IsKeyPressed(rl.KeyF) {
-			rl.ToggleFullscreen()
-		}
-
-		dt := rl.GetFrameTime()
-
-		if e.ActiveScene != nil {
-			e.ActiveScene.Update(dt)
-		}
-
-		rl.BeginDrawing()
-		rl.ClearBackground(e.Config.ClearColor)
-
-		if e.ActiveScene != nil {
-			cam := e.ActiveScene.GetCamera()
-			rl.BeginMode3D(cam)
-			e.ActiveScene.Draw3D()
-			rl.EndMode3D()
-
-			e.ActiveScene.Draw2D()
-		}
-
-		rl.EndDrawing()
+	lastTime := glfw.GetTime()
+	for !e.App.Window.ShouldClose() {
+		now := glfw.GetTime()
+		dt := float32(now - lastTime)
+		lastTime = now
+		e.App.Scene = e.ActiveScene
+		e.App.StepFrame(dt)
 	}
-
-	e.IsRunning = false
-	if e.ActiveScene != nil {
-		e.ActiveScene.Unload()
-	}
+	return nil
 }
