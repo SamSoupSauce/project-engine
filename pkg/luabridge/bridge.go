@@ -17,13 +17,14 @@ type InputHook func(input string) (handled bool, output string, err error)
 // LuaBridge coordinates Lua scripting runtime execution, custom command registration,
 // input-hook interception, and engine GameObject bindings without circular dependencies.
 type LuaBridge struct {
-	L          *lua.LState
-	commands   map[string]CommandHandler
-	inputHooks []InputHook
-	objects    map[string]*engine.GameObject
-	dataMu     sync.RWMutex
-	stateMu    sync.Mutex
-	outputLogs []string
+	L             *lua.LState
+	commands      map[string]CommandHandler
+	inputHooks    []InputHook
+	objects       map[string]*engine.GameObject
+	dataMu        sync.RWMutex
+	stateMu       reentrantMutex
+	outputLogs    []string
+	OnScriptError func(scriptPath, hook string, err error)
 }
 
 // NewLuaBridge creates an initialized Lua runtime bridge.
@@ -38,7 +39,13 @@ func NewLuaBridge() *LuaBridge {
 	}
 
 	bridge.registerStandardEngineAPIs()
+	bridge.registerEngineTypes()
 	return bridge
+}
+
+// NewScriptComponent loads a Lua script file into an isolated ScriptComponent bound to this bridge.
+func (b *LuaBridge) NewScriptComponent(scriptPath string) (*ScriptComponent, error) {
+	return NewScriptComponent(b, scriptPath)
 }
 
 // Close tears down the underlying Lua state.
