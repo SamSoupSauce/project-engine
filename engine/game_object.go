@@ -16,8 +16,10 @@ type GameObject struct {
 	Parent     *GameObject
 	Children   []*GameObject
 	Components []Component
+	Scene      Scene
 
-	mu sync.RWMutex
+	spawned bool
+	mu      sync.RWMutex
 }
 
 // NewGameObject initializes an active spatial entity with identity transform.
@@ -37,16 +39,22 @@ func (go_ *GameObject) AddChild(child *GameObject) {
 	if child == nil || child == go_ {
 		return
 	}
-	go_.mu.Lock()
-	defer go_.mu.Unlock()
-
-	// If child already has a parent, remove it first
+	if child.Parent == go_ {
+		return
+	}
 	if child.Parent != nil {
 		child.Parent.RemoveChild(child)
 	}
 
+	go_.mu.Lock()
 	child.Parent = go_
 	go_.Children = append(go_.Children, child)
+	scene := go_.Scene
+	go_.mu.Unlock()
+
+	if scene != nil {
+		child.SetSceneRecursive(scene)
+	}
 }
 
 // RemoveChild unlinks a child GameObject from this entity.
@@ -124,12 +132,151 @@ func (go_ *GameObject) Update(dt float32) {
 func (go_ *GameObject) Destroy() {
 	go_.Active = false
 	go_.mu.Lock()
-	defer go_.mu.Unlock()
+	components := make([]Component, len(go_.Components))
+	copy(components, go_.Components)
+	children := make([]*GameObject, len(go_.Children))
+	copy(children, go_.Children)
+	go_.spawned = false
+	go_.mu.Unlock()
 
-	for _, c := range go_.Components {
+	for _, c := range components {
 		c.Destroy()
 	}
-	for _, child := range go_.Children {
+	for _, child := range children {
 		child.Destroy()
 	}
+}
+
+// SetScene assigns the owning scene on this GameObject.
+func (go_ *GameObject) SetScene(s Scene) {
+	go_.mu.Lock()
+	go_.Scene = s
+	go_.mu.Unlock()
+}
+
+// GetScene returns the owning scene of this GameObject, if any.
+func (go_ *GameObject) GetScene() Scene {
+	go_.mu.RLock()
+	defer go_.mu.RUnlock()
+	return go_.Scene
+}
+
+// SetSceneRecursive assigns the owning scene on this GameObject and all descendants.
+func (go_ *GameObject) SetSceneRecursive(s Scene) {
+	go_.SetScene(s)
+	go_.mu.RLock()
+	children := make([]*GameObject, len(go_.Children))
+	copy(children, go_.Children)
+	go_.mu.RUnlock()
+
+	for _, child := range children {
+		child.SetSceneRecursive(s)
+	}
+}
+
+// IsSpawned reports whether this GameObject is currently spawned in an active scene.
+func (go_ *GameObject) IsSpawned() bool {
+	go_.mu.RLock()
+	defer go_.mu.RUnlock()
+	return go_.spawned
+}
+
+// SetSpawned updates the spawned state of this GameObject.
+func (go_ *GameObject) SetSpawned(spawned bool) {
+	go_.mu.Lock()
+	go_.spawned = spawned
+	go_.mu.Unlock()
+}
+
+// Emit broadcasts a named event with optional payload data across the owning scene's event bus,
+// or directly to this GameObject subtree when not attached to a scene.
+func (go_ *GameObject) Emit(name string, data any) {
+	scene := go_.GetScene()
+	if scene != nil {
+		if bus, ok := scene.(EventBus); ok {
+			bus.Emit(name, go_, data)
+			return
+		}
+	}
+	go_.dispatchEventTree(name, go_, data)
+}
+
+// EmitTo sends a named event directly to a specific target GameObject with this object as sender.
+func (go_ *GameObject) EmitTo(target *GameObject, name string, data any) {
+	if target == nil || !target.Active {
+		return
+	}
+	target.DispatchEvent(name, go_, data)
+}
+
+func (go_ *GameObject) dispatchEventTree(name string, sender *GameObject, data any) {
+	if !go_.Active {
+		return
+	}
+	go_.DispatchEvent(name, sender, data)
+	go_.mu.RLock()
+	children := make([]*GameObject, len(go_.Children))
+	copy(children, go_.Children)
+	go_.mu.RUnlock()
+
+	for _, child := range children {
+		child.dispatchEventTree(name, sender, data)
+	}
+}
+
+func (go_ *GameObject) forEachScript(fn func(ScriptLifecycle)) {
+	go_.mu.RLock()
+	scripts := make([]ScriptLifecycle, 0, len(go_.Components))
+	for _, c := range go_.Components {
+		if sl, ok := c.(ScriptLifecycle); ok {
+			scripts = append(scripts, sl)
+		}
+	}
+	go_.mu.RUnlock()
+
+	for _, s := range scripts {
+		fn(s)
+	}
+}
+
+// DispatchLoad triggers OnLoad(scene) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchLoad(scene Scene) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnLoad(scene)
+	})
+}
+
+// DispatchUnload triggers OnUnload(scene) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchUnload(scene Scene) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnUnload(scene)
+	})
+}
+
+// DispatchSpawn triggers OnSpawn(sender) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchSpawn(sender any) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnSpawn(sender)
+	})
+}
+
+// DispatchEvent triggers OnEvent(name, sender, data) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchEvent(name string, sender *GameObject, data any) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnEvent(name, sender, data)
+	})
+}
+
+// DispatchTick triggers OnTick(dtMs) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchTick(dtMs int) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnTick(dtMs)
+	})
+}
+
+// DispatchDespawn triggers OnDespawn(sender, data) on all attached ScriptLifecycle components.
+func (go_ *GameObject) DispatchDespawn(sender *GameObject, data any) {
+	go_.forEachScript(func(s ScriptLifecycle) {
+		s.OnDespawn(sender, data)
+	})
 }

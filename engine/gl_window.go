@@ -33,12 +33,13 @@ func DefaultGLWindowConfig() GLWindowConfig {
 	}
 }
 
-// GLApp hosts a GLFW window, OpenGL 3.3 Core context, active Scene, and ImGuiOverlay.
+// GLApp hosts a GLFW window, OpenGL 3.3 Core context, active Scene, 2D orthographic batcher, and ImGuiOverlay.
 type GLApp struct {
-	Config  GLWindowConfig
-	Window  *glfw.Window
-	Overlay *ImGuiOverlay
-	Scene   Scene
+	Config    GLWindowConfig
+	Window    *glfw.Window
+	Batcher2D *OrthoBatcher2D
+	Overlay   *ImGuiOverlay
+	Scene     Scene
 }
 
 // NewGLApp creates an initialized GLApp wrapper ready to open a GLFW window.
@@ -47,9 +48,10 @@ func NewGLApp(cfg GLWindowConfig, scene Scene, overlay *ImGuiOverlay) *GLApp {
 		overlay = NewImGuiOverlay()
 	}
 	return &GLApp{
-		Config:  cfg,
-		Overlay: overlay,
-		Scene:   scene,
+		Config:    cfg,
+		Batcher2D: NewOrthoBatcher2D(DefaultBatcher2DCapacity),
+		Overlay:   overlay,
+		Scene:     scene,
 	}
 }
 
@@ -105,6 +107,18 @@ func (a *GLApp) InitWindow() error {
 		return fmt.Errorf("engine: gl.Init failed: %w", err)
 	}
 
+	if a.Batcher2D != nil {
+		if err := a.Batcher2D.Init(); err != nil {
+			if a.Overlay != nil {
+				a.Overlay.Shutdown()
+			}
+			w.Destroy()
+			glfw.Terminate()
+			a.Window = nil
+			return err
+		}
+	}
+
 	w.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
 		gl.Viewport(0, 0, int32(width), int32(height))
 	})
@@ -119,7 +133,8 @@ type SceneMetadata interface {
 	ObjectCount() int
 }
 
-// StepFrame executes a single update, 3D scene pass, ImGui overlay pass, buffer swap, and event poll.
+// StepFrame executes update, 3D scene pass, 2D orthographic HUD pass, ImGui overlay pass,
+// buffer swap, and event polling.
 func (a *GLApp) StepFrame(dt float32) {
 	if a.Window == nil {
 		return
@@ -135,6 +150,19 @@ func (a *GLApp) StepFrame(dt float32) {
 		a.Scene.Update(dt)
 		a.Scene.Draw3D()
 		a.Scene.Draw2D()
+	}
+
+	// Orthographic 2D pass: runs after the 3D scene pass and before the debug ImGui pass.
+	if a.Batcher2D != nil && a.Scene != nil {
+		if sc, ok := a.Scene.(SceneController); ok {
+			winW, winH := a.Window.GetSize()
+			cmds := Extract2DFromHierarchy(sc.GetRoot(), float32(winW), float32(winH))
+			if len(cmds) > 0 {
+				a.Batcher2D.Begin(winW, winH)
+				a.Batcher2D.DrawCommands(cmds)
+				a.Batcher2D.End()
+			}
+		}
 	}
 
 	if a.Overlay != nil {
@@ -173,8 +201,11 @@ func (a *GLApp) Run() error {
 	return nil
 }
 
-// Close shuts down the ImGui overlay, destroys the GLFW window, and terminates GLFW.
+// Close shuts down the 2D batcher, ImGui overlay, destroys the GLFW window, and terminates GLFW.
 func (a *GLApp) Close() {
+	if a.Batcher2D != nil {
+		a.Batcher2D.Destroy()
+	}
 	if a.Overlay != nil {
 		a.Overlay.Shutdown()
 	}
