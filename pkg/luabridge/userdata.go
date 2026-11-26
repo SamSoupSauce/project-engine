@@ -3,6 +3,7 @@ package luabridge
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
@@ -24,6 +25,8 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerInteractiveType()
 	b.registerHazardTypes()
 	b.registerComponentTypes()
+	b.wrapBuiltinComponentMetatables()
+	b.registerComponentFactory()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -37,7 +40,7 @@ func (b *LuaBridge) registerGameObjectType() {
 	mt := b.L.NewTypeMetatable(luaGameObjectTypeName)
 
 	methods := b.L.NewTable()
-	for name, fn := range gameObjectMethods() {
+	for name, fn := range gameObjectMethods(b) {
 		b.L.SetField(methods, name, b.L.NewFunction(fn))
 	}
 
@@ -100,7 +103,7 @@ func (b *LuaBridge) registerGameObjectType() {
 	}))
 }
 
-func gameObjectMethods() map[string]lua.LGFunction {
+func gameObjectMethods(b *LuaBridge) map[string]lua.LGFunction {
 	return map[string]lua.LGFunction{
 		"GetID": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
@@ -339,18 +342,78 @@ func gameObjectMethods() map[string]lua.LGFunction {
 				pushFracture(L, fc)
 				return 1
 			default:
+				if b != nil {
+					if def := b.getCustomComponentDef(compName); def != nil {
+						var overrides *lua.LTable
+						if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+							overrides = L.CheckTable(3)
+						}
+						lc := b.newLuaComponent(def, overrides)
+						obj.AddComponent(lc)
+						pushLuaComponent(L, lc)
+						return 1
+					}
+				}
 				L.RaiseError("unsupported component type %q for AddComponent", compName)
 				return 0
 			}
 		},
 		"RemoveComponent": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
-			rt := componentReflectType(resolveComponentArg(L, 2))
-			if rt == nil {
-				L.Push(lua.LFalse)
+			compName := resolveComponentArg(L, 2)
+			rt := componentReflectType(compName)
+			if rt != nil {
+				L.Push(lua.LBool(obj.RemoveComponent(rt)))
 				return 1
 			}
-			L.Push(lua.LBool(obj.RemoveComponent(rt)))
+			if b != nil {
+				if def := b.getCustomComponentDef(compName); def != nil {
+					removed := obj.RemoveComponentWhere(func(c engine.Component) bool {
+						lc, ok := c.(*LuaComponent)
+						return ok && strings.EqualFold(lc.TypeName, def.Name)
+					})
+					L.Push(lua.LBool(removed))
+					return 1
+				}
+			}
+			L.Push(lua.LFalse)
+			return 1
+		},
+		"RegisterHookListener": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			hookName := L.CheckString(2)
+			listener := L.Get(3)
+			if listener == lua.LNil {
+				L.ArgError(3, "hook listener must not be nil")
+				return 0
+			}
+			if b == nil {
+				return 0
+			}
+			if err := b.registerHookListenerValue(obj, hookName, listener); err != nil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			return 0
+		},
+		"CallHook": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			hookName := L.CheckString(2)
+			if b == nil {
+				L.Push(lua.LNumber(0))
+				return 1
+			}
+			top := L.GetTop()
+			args := make([]lua.LValue, 0, top)
+			for i := 3; i <= top; i++ {
+				args = append(args, L.Get(i))
+			}
+			count, err := b.callObjectHook(L, obj, hookName, args)
+			if err != nil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			L.Push(lua.LNumber(count))
 			return 1
 		},
 		"Help": func(L *lua.LState) int {

@@ -19,35 +19,44 @@ type InputHook func(input string) (handled bool, output string, err error)
 // LuaBridge coordinates Lua scripting runtime execution, custom command registration,
 // input-hook interception, and engine GameObject bindings without circular dependencies.
 type LuaBridge struct {
-	L             *lua.LState
-	commands      map[string]CommandHandler
-	inputHooks    []InputHook
-	objects       map[string]*engine.GameObject
-	scene         *engine.BaseScene
-	console       *Console
-	pickedObj     *engine.GameObject
-	dataMu        sync.RWMutex
-	stateMu       reentrantMutex
-	outputLogs    []string
-	execCapture   *[]string
-	pendingHelpArg string
-	OnScriptError func(scriptPath, hook string, err error)
+	L                 *lua.LState
+	commands          map[string]CommandHandler
+	inputHooks        []InputHook
+	objects           map[string]*engine.GameObject
+	customComponents  map[string]*LuaComponentDef
+	componentClasses  map[string]*ComponentClass
+	hookListeners     map[*engine.GameObject]map[string][]*HookListener
+	scriptEditor      *ScriptEditorService
+	loadingScriptPath string
+	scene             *engine.BaseScene
+	console           *Console
+	pickedObj         *engine.GameObject
+	dataMu            sync.RWMutex
+	stateMu           reentrantMutex
+	outputLogs        []string
+	execCapture       *[]string
+	pendingHelpArg    string
+	OnScriptError     func(scriptPath, hook string, err error)
 }
 
 // NewLuaBridge creates an initialized Lua runtime bridge.
 func NewLuaBridge() *LuaBridge {
 	L := lua.NewState()
 	bridge := &LuaBridge{
-		L:          L,
-		commands:   make(map[string]CommandHandler),
-		inputHooks: make([]InputHook, 0),
-		objects:    make(map[string]*engine.GameObject),
-		outputLogs: make([]string, 0, 128),
+		L:                L,
+		commands:         make(map[string]CommandHandler),
+		inputHooks:       make([]InputHook, 0),
+		objects:          make(map[string]*engine.GameObject),
+		customComponents: make(map[string]*LuaComponentDef),
+		componentClasses: make(map[string]*ComponentClass),
+		hookListeners:    make(map[*engine.GameObject]map[string][]*HookListener),
+		outputLogs:       make([]string, 0, 128),
 	}
 
 	bridge.registerStandardEngineAPIs()
 	bridge.registerEngineTypes()
 	bridge.registerConsoleCommands()
+	bridge.registerScriptEditorAPIs()
 	return bridge
 }
 
@@ -267,20 +276,31 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 	for name := range b.commands {
 		cmds = append(cmds, name)
 	}
+	customNames := make([]string, 0, len(b.customComponents))
+	for name := range b.customComponents {
+		customNames = append(customNames, name)
+	}
 	b.dataMu.RUnlock()
 	sort.Strings(cmds)
+	sort.Strings(customNames)
+
+	classList := "Transform, Mesh, MeshRenderable, Renderable, Renderable2D, RigidBody, CharacterController, InteractiveComponent, FractureComponent, ScriptComponent"
+	if len(customNames) > 0 {
+		classList += ", " + strings.Join(customNames, ", ")
+	}
 
 	lines := []string{
 		"=== Project Engine Developer Console Help ===",
 		"Lua Helpers:",
 		"  help([target])              Show general help, object help (help(selected)), or class help (help(Mesh))",
+		"  edit([target])              Open or close the Dear ImGui Script Editor",
 		"  clear()                     Clear console output buffer",
 		"  print(...)                  Print values to console output (GameObjects & Components pretty-print JSON)",
 		"  pick(idOrName) / unpick()   Select or deselect a GameObject (`selected` global)",
 		"  picked() / list_objects()   Inspect active target or list scene GameObjects",
 		"  get_entity_position(name)   Return {x, y, z} world position table",
 		"  set_entity_active(name, b)  Toggle GameObject.Active",
-		"Component Classes: Transform, Mesh, MeshRenderable, Renderable, Renderable2D, RigidBody, CharacterController, InteractiveComponent, FractureComponent, ScriptComponent",
+		"Component Classes: " + classList,
 	}
 	if len(cmds) > 0 {
 		lines = append(lines, "Console Commands: "+strings.Join(cmds, ", "))
@@ -354,7 +374,7 @@ func (b *LuaBridge) registerConsoleCommands() {
 				} else {
 					txt = b.FormatHelp("pick")
 				}
-			} else if compHelp, ok := FormatComponentHelp(argStr); ok {
+			} else if compHelp, ok := b.formatNamedTypeHelp(argStr); ok {
 				txt = compHelp
 			} else if obj := b.findSceneOrRegisteredObject(argStr); obj != nil {
 				txt = FormatObjectHelp(obj)

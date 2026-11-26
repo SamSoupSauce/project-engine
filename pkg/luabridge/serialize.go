@@ -126,6 +126,18 @@ func buildComponentSummaryJSON(c engine.Component) componentSummaryJSON {
 			"script_path": typed.ScriptPath,
 			"script_name": typed.ScriptName,
 		}
+	case *LuaComponent:
+		if typed.Fields != nil {
+			details := make(map[string]any)
+			typed.Fields.ForEach(func(k, v lua.LValue) {
+				if ks, ok := k.(lua.LString); ok {
+					details[string(ks)] = luaValueToGo(v)
+				}
+			})
+			if len(details) > 0 {
+				summary.Details = details
+			}
+		}
 	}
 	return summary
 }
@@ -218,6 +230,8 @@ func serializeUserData(L *lua.LState, ud *lua.LUserData) string {
 		return SerializeGameObjectJSON(obj)
 	case *ComponentClass:
 		return fmt.Sprintf("Class<%s (%s)>", obj.Name, obj.GoType)
+	case *TypeToken:
+		return fmt.Sprintf("Type<%s (%s)>", obj.Name, obj.GoType)
 	case engine.Component:
 		return SerializeComponentJSON(obj)
 	case engine.Vector3:

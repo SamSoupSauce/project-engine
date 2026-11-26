@@ -213,7 +213,7 @@ func FormatObjectHelp(obj *engine.GameObject) string {
 
 	sb.WriteString("Properties: id, name, active, scene\n")
 
-	methodsMap := gameObjectMethods()
+	methodsMap := gameObjectMethods(nil)
 	methodNames := make([]string, 0, len(methodsMap))
 	for name := range methodsMap {
 		methodNames = append(methodNames, name)
@@ -292,7 +292,7 @@ func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (st
 			}
 			return "", fmt.Errorf("no class name or variable exists named %q", hint)
 		}
-		if txt, ok := FormatComponentHelp(hint); ok {
+		if txt, ok := b.formatNamedTypeHelp(hint); ok {
 			return txt, nil
 		}
 		if obj := b.findSceneOrRegisteredObject(hint); obj != nil {
@@ -305,15 +305,18 @@ func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (st
 		if obj, ok := ud.Value.(*engine.GameObject); ok {
 			return FormatObjectHelp(obj), nil
 		}
+		if tt, ok := ud.Value.(*TypeToken); ok {
+			return FormatTypeTokenHelp(tt), nil
+		}
 		if cc, ok := ud.Value.(*ComponentClass); ok {
-			if txt, found := FormatComponentHelp(cc.Name); found {
-				return txt, nil
-			}
-			return fmt.Sprintf("Component Class: %s (%s)", cc.Name, cc.GoType), nil
+			return b.formatComponentClassHelp(cc), nil
+		}
+		if lc, ok := ud.Value.(*LuaComponent); ok {
+			return b.formatCustomComponentHelp(lc.Def, lc), nil
 		}
 		if comp, ok := ud.Value.(engine.Component); ok {
 			canon := componentCanonicalName(comp)
-			if txt, found := FormatComponentHelp(canon); found {
+			if txt, found := b.formatBuiltinComponentHelp(canon); found {
 				return txt, nil
 			}
 			return formatReflectedComponentHelp(comp), nil
@@ -329,7 +332,7 @@ func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (st
 		if txt, ok := b.formatHelpTopicOnly(topic); ok {
 			return txt, nil
 		}
-		if txt, ok := FormatComponentHelp(topic); ok {
+		if txt, ok := b.formatNamedTypeHelp(topic); ok {
 			return txt, nil
 		}
 		if obj := b.findSceneOrRegisteredObject(topic); obj != nil {
@@ -339,6 +342,139 @@ func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (st
 	}
 
 	return fmt.Sprintf("Lua %s: %s", arg.Type().String(), SerializeLuaValue(b.L, arg)), nil
+}
+
+func (b *LuaBridge) formatNamedTypeHelp(name string) (string, bool) {
+	if def := b.getCustomComponentDef(name); def != nil {
+		return b.formatCustomComponentHelp(def, nil), true
+	}
+	if txt, ok := b.formatBuiltinComponentHelp(name); ok {
+		return txt, true
+	}
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "gameobject":
+		return FormatTypeTokenHelp(&TypeToken{Name: "GameObject", GoType: "*engine.GameObject"}), true
+	case "scene":
+		return FormatTypeTokenHelp(&TypeToken{Name: "Scene", GoType: "engine.Scene"}), true
+	}
+	return "", false
+}
+
+func (b *LuaBridge) formatBuiltinComponentHelp(name string) (string, bool) {
+	canon := resolveComponentAlias(name)
+	txt, ok := FormatComponentHelp(canon)
+	if !ok {
+		return "", false
+	}
+	b.dataMu.RLock()
+	cc := b.componentClasses[canon]
+	b.dataMu.RUnlock()
+	if cc != nil && cc.Proto != nil {
+		dynMethods := collectProtoMethodNames(cc.Proto)
+		if len(dynMethods) > 0 {
+			var sb strings.Builder
+			sb.WriteString(txt)
+			sb.WriteString("\nCustom Lua Methods:\n")
+			for _, m := range dynMethods {
+				sb.WriteString(fmt.Sprintf("  %s(...)\n", m))
+			}
+			return strings.TrimRight(sb.String(), "\n"), true
+		}
+	}
+	return txt, true
+}
+
+func (b *LuaBridge) formatComponentClassHelp(cc *ComponentClass) string {
+	if cc == nil {
+		return "Component Class: nil"
+	}
+	if cc.CustomDef != nil {
+		return b.formatCustomComponentHelp(cc.CustomDef, nil)
+	}
+	if txt, found := b.formatBuiltinComponentHelp(cc.Name); found {
+		return txt
+	}
+	return fmt.Sprintf("Component Class: %s (%s)", cc.Name, cc.GoType)
+}
+
+func (b *LuaBridge) formatCustomComponentHelp(def *LuaComponentDef, inst *LuaComponent) string {
+	if def == nil {
+		return "Component Help: LuaComponent"
+	}
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("=== Component Help: %s (*luabridge.LuaComponent) ===\n", def.Name))
+	sb.WriteString("Description: Lua-defined custom component.\n")
+
+	if len(def.FieldNames) > 0 {
+		sb.WriteString("Fields / Properties:\n")
+		for _, k := range def.FieldNames {
+			val := def.Defaults[k]
+			if inst != nil && inst.Fields != nil {
+				if cur := inst.Fields.RawGetString(k); cur != lua.LNil {
+					val = cur
+				}
+			}
+			sb.WriteString(fmt.Sprintf("  %s (%s = %s)\n", k, describeLuaValueType(val), SerializeLuaValue(b.L, val)))
+		}
+	}
+
+	if len(def.HookNames) > 0 {
+		sb.WriteString("Hooks:\n")
+		for _, h := range def.HookNames {
+			sig := def.Hooks[h]
+			sb.WriteString(fmt.Sprintf("  %s(%s)\n", h, strings.Join(sig, ", ")))
+		}
+	}
+
+	methods := collectProtoMethodNames(def.Proto)
+	sb.WriteString("Methods:\n")
+	for _, builtin := range []string{"GetOwner() -> GameObject", "GetEntity() -> GameObject", "GetTypeName() -> string"} {
+		sb.WriteString("  " + builtin + "\n")
+	}
+	for _, m := range methods {
+		sb.WriteString(fmt.Sprintf("  %s(...)\n", m))
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+// FormatTypeTokenHelp returns inspection details for non-component engine type tokens (e.g., GameObject).
+func FormatTypeTokenHelp(tt *TypeToken) string {
+	if tt == nil {
+		return "Type: nil"
+	}
+	if tt.Name == "GameObject" {
+		methodsMap := gameObjectMethods(nil)
+		methodNames := make([]string, 0, len(methodsMap))
+		for name := range methodsMap {
+			methodNames = append(methodNames, name)
+		}
+		sort.Strings(methodNames)
+		return fmt.Sprintf("=== Type Help: GameObject (*engine.GameObject) ===\nProperties: id, name, active, scene\nMethods (%d):\n  %s",
+			len(methodNames), strings.Join(methodNames, ", "))
+	}
+	return fmt.Sprintf("=== Type Help: %s (%s) ===", tt.Name, tt.GoType)
+}
+
+func collectProtoMethodNames(proto *lua.LTable) []string {
+	if proto == nil {
+		return nil
+	}
+	var names []string
+	proto.ForEach(func(k, v lua.LValue) {
+		ks, ok := k.(lua.LString)
+		if !ok {
+			return
+		}
+		key := string(ks)
+		if key == "__index" {
+			return
+		}
+		if v.Type() == lua.LTFunction {
+			names = append(names, key)
+		}
+	})
+	sort.Strings(names)
+	return names
 }
 
 func formatReflectedComponentHelp(comp engine.Component) string {
@@ -393,6 +529,22 @@ func summarizeComponentShort(c engine.Component) string {
 		return fmt.Sprintf("hp=%.1f hands=%d", comp.Health, comp.RequiredCarryHands)
 	case *ScriptComponent:
 		return fmt.Sprintf("script=%q", comp.ScriptPath)
+	case *LuaComponent:
+		if comp.Fields == nil {
+			return ""
+		}
+		var keys []string
+		comp.Fields.ForEach(func(k, _ lua.LValue) {
+			if ks, ok := k.(lua.LString); ok {
+				keys = append(keys, string(ks))
+			}
+		})
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("%s=%s", k, SerializeLuaValue(comp.Bridge.L, comp.Fields.RawGetString(k))))
+		}
+		return strings.Join(parts, ", ")
 	default:
 		return ""
 	}

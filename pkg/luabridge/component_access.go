@@ -19,10 +19,13 @@ const (
 	luaScriptComponentTypeName = "ScriptComponent"
 )
 
-// ComponentClass represents a Lua read-only component class constant (e.g., Mesh, Transform).
+// ComponentClass represents a Lua component class constant (e.g., Mesh, Transform, or custom Lua Component).
 type ComponentClass struct {
-	Name   string
-	GoType string
+	Name      string
+	GoType    string
+	Proto     *lua.LTable
+	CustomDef *LuaComponentDef
+	Bridge    *LuaBridge
 }
 
 func (b *LuaBridge) registerComponentTypes() {
@@ -40,27 +43,96 @@ func (b *LuaBridge) registerComponentClassGlobals() {
 		cc := checkComponentClass(L, 1)
 		key := L.CheckString(2)
 		switch key {
-		case "name", "Name":
+		case "name", "Name", "__name":
 			L.Push(lua.LString(cc.Name))
 		case "go_type", "GoType":
 			L.Push(lua.LString(cc.GoType))
+		case "__defaults":
+			if cc.CustomDef != nil {
+				tbl := L.NewTable()
+				for _, k := range cc.CustomDef.FieldNames {
+					tbl.RawSetString(k, cloneLuaValue(L, cc.CustomDef.Defaults[k]))
+				}
+				L.Push(tbl)
+			} else {
+				L.Push(lua.LNil)
+			}
+		case "__hooks":
+			if cc.CustomDef != nil {
+				tbl := L.NewTable()
+				for _, h := range cc.CustomDef.HookNames {
+					sigTbl := L.NewTable()
+					for i, argType := range cc.CustomDef.Hooks[h] {
+						sigTbl.RawSetInt(i+1, lua.LString(argType))
+					}
+					tbl.RawSetString(h, sigTbl)
+				}
+				L.Push(tbl)
+			} else {
+				L.Push(lua.LNil)
+			}
+		case "new":
+			if cc.CustomDef != nil {
+				L.Push(L.NewFunction(func(L2 *lua.LState) int {
+					var entity *engine.GameObject
+					argIdx := 1
+					if L2.GetTop() >= 1 {
+						if ud, ok := L2.Get(1).(*lua.LUserData); ok && ud != nil {
+							if _, isClass := ud.Value.(*ComponentClass); isClass {
+								argIdx = 2
+							}
+						}
+					}
+					if L2.GetTop() >= argIdx && L2.Get(argIdx) != lua.LNil {
+						entity = checkGameObject(L2, argIdx)
+					}
+					var overrides *lua.LTable
+					if L2.GetTop() >= argIdx+1 && L2.Get(argIdx+1) != lua.LNil {
+						overrides = L2.CheckTable(argIdx + 1)
+					}
+					lc := b.newLuaComponent(cc.CustomDef, overrides)
+					if entity != nil {
+						entity.AddComponent(lc)
+					}
+					pushLuaComponent(L2, lc)
+					return 1
+				}))
+			} else {
+				L.Push(lua.LNil)
+			}
 		case "help", "Help":
 			L.Push(L.NewFunction(func(L2 *lua.LState) int {
 				c := checkComponentClass(L2, 1)
-				if txt, ok := FormatComponentHelp(c.Name); ok {
-					L2.Push(lua.LString(txt))
-				} else {
-					L2.Push(lua.LString(fmt.Sprintf("%s (%s)", c.Name, c.GoType)))
-				}
+				L2.Push(lua.LString(b.formatComponentClassHelp(c)))
 				return 1
 			}))
 		default:
+			if cc.Proto != nil {
+				if val := cc.Proto.RawGetString(key); val != lua.LNil {
+					L.Push(val)
+					return 1
+				}
+			}
 			L.Push(lua.LNil)
 		}
 		return 1
 	}))
 	b.L.SetField(mt, "__newindex", b.L.NewFunction(func(L *lua.LState) int {
 		cc := checkComponentClass(L, 1)
+		key := L.CheckString(2)
+		switch key {
+		case "name", "Name", "go_type", "GoType", "__name", "__defaults", "__hooks", "new", "help", "Help":
+			L.RaiseError("component class %s is read-only", cc.Name)
+			return 0
+		}
+		val := L.Get(3)
+		if cc.CustomDef != nil || val.Type() == lua.LTFunction {
+			if cc.Proto == nil {
+				cc.Proto = L.NewTable()
+			}
+			cc.Proto.RawSetString(key, val)
+			return 0
+		}
 		L.RaiseError("component class %s is read-only", cc.Name)
 		return 0
 	}))
@@ -100,13 +172,71 @@ func (b *LuaBridge) registerComponentClassGlobals() {
 	}
 
 	for _, def := range classDefs {
-		cc := &ComponentClass{Name: def.canonName, GoType: def.goType}
+		cc := &ComponentClass{
+			Name:   def.canonName,
+			GoType: def.goType,
+			Proto:  b.L.NewTable(),
+			Bridge: b,
+		}
+		b.dataMu.Lock()
+		b.componentClasses[def.canonName] = cc
+		b.dataMu.Unlock()
+
 		ud := b.L.NewUserData()
 		ud.Value = cc
 		b.L.SetMetatable(ud, mt)
 		for _, gName := range def.globalNames {
 			b.L.SetGlobal(gName, ud)
 		}
+	}
+}
+
+func (b *LuaBridge) wrapBuiltinComponentMetatables() {
+	metatableToCanon := map[string]string{
+		luaTransformTypeName:       "Transform",
+		luaMeshTypeName:            "Mesh",
+		luaMeshRenderableTypeName:  "MeshRenderable",
+		luaRenderableTypeName:      "Renderable",
+		luaRenderable2DTypeName:    "Renderable2D",
+		luaRigidBodyTypeName:       "RigidBody",
+		luaInteractiveTypeName:     "InteractiveComponent",
+		luaFractureTypeName:        "FractureComponent",
+		luaScriptComponentTypeName: "ScriptComponent",
+	}
+
+	for mtName, canonName := range metatableToCanon {
+		b.dataMu.RLock()
+		cc := b.componentClasses[canonName]
+		b.dataMu.RUnlock()
+		if cc == nil || cc.Proto == nil {
+			continue
+		}
+		mtVal := b.L.GetTypeMetatable(mtName)
+		mt, ok := mtVal.(*lua.LTable)
+		if !ok || mt == nil {
+			continue
+		}
+		origIndex := mt.RawGetString("__index")
+		proto := cc.Proto
+		b.L.SetField(mt, "__index", b.L.NewFunction(func(L *lua.LState) int {
+			if fn, ok := origIndex.(*lua.LFunction); ok {
+				L.Push(fn)
+				L.Push(L.Get(1))
+				L.Push(L.Get(2))
+				L.Call(2, 1)
+				if res := L.Get(-1); res != lua.LNil {
+					return 1
+				}
+				L.Pop(1)
+			}
+			key := L.CheckString(2)
+			if m := proto.RawGetString(key); m != lua.LNil {
+				L.Push(m)
+				return 1
+			}
+			L.Push(lua.LNil)
+			return 1
+		}))
 	}
 }
 
@@ -469,7 +599,7 @@ func componentReflectType(name string) reflect.Type {
 }
 
 func componentCanonicalName(comp engine.Component) string {
-	switch comp.(type) {
+	switch c := comp.(type) {
 	case *engine.TransformComponent:
 		return "Transform"
 	case *engine.MeshComponent:
@@ -490,6 +620,8 @@ func componentCanonicalName(comp engine.Component) string {
 		return "FractureComponent"
 	case *ScriptComponent:
 		return "ScriptComponent"
+	case *LuaComponent:
+		return c.TypeName
 	default:
 		return reflect.TypeOf(comp).String()
 	}
@@ -523,6 +655,9 @@ func pushEngineComponent(L *lua.LState, comp engine.Component) bool {
 		return true
 	case *ScriptComponent:
 		pushScriptComponent(L, c)
+		return true
+	case *LuaComponent:
+		pushLuaComponent(L, c)
 		return true
 	default:
 		L.Push(lua.LNil)
@@ -708,10 +843,24 @@ func findComponentByName(obj *engine.GameObject, name string) engine.Component {
 		return nil
 	}
 	rt := componentReflectType(name)
-	if rt == nil {
+	if rt != nil {
+		return obj.GetComponent(rt)
+	}
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
 		return nil
 	}
-	return obj.GetComponent(rt)
+	for _, c := range obj.Components {
+		if lc, ok := c.(*LuaComponent); ok && lc.TypeName == trimmed {
+			return lc
+		}
+	}
+	for _, c := range obj.Components {
+		if lc, ok := c.(*LuaComponent); ok && strings.EqualFold(lc.TypeName, trimmed) {
+			return lc
+		}
+	}
+	return nil
 }
 
 func pushTransformComponent(L *lua.LState, tc *engine.TransformComponent) {

@@ -108,18 +108,28 @@ func (go_ *GameObject) GetComponent(targetType reflect.Type) Component {
 
 // RemoveComponent detaches the first component matching targetType and calls Destroy().
 func (go_ *GameObject) RemoveComponent(targetType reflect.Type) bool {
-	if go_ == nil || targetType == nil {
+	if targetType == nil {
 		return false
 	}
 	isIface := targetType.Kind() == reflect.Interface
+	return go_.RemoveComponentWhere(func(c Component) bool {
+		cType := reflect.TypeOf(c)
+		return cType == targetType || (isIface && cType.Implements(targetType))
+	})
+}
+
+// RemoveComponentWhere detaches the first component satisfying match and calls Destroy().
+func (go_ *GameObject) RemoveComponentWhere(match func(Component) bool) bool {
+	if go_ == nil || match == nil {
+		return false
+	}
 	go_.mu.Lock()
 	var removed Component
 	for i, c := range go_.Components {
 		if c == nil {
 			continue
 		}
-		cType := reflect.TypeOf(c)
-		if cType == targetType || (isIface && cType.Implements(targetType)) {
+		if match(c) {
 			removed = c
 			go_.Components = append(go_.Components[:i], go_.Components[i+1:]...)
 			break
