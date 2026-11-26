@@ -32,6 +32,7 @@ type RaycastHit struct {
 	Point    Vector3
 	Normal   Vector3
 	BodyID   string
+	UserData uint32
 }
 
 // PhysicsWorldHandle defines an abstract interface for a 3D physics environment.

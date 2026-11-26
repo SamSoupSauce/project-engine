@@ -61,6 +61,9 @@ type RigidBody struct {
 	AngularDamping float32
 	GravityFactor  float32
 	UseCCD         bool
+	UserData       uint32
+	ObjectLayer    uint32
+	HasCustomLayer bool
 
 	initialPos engine.Vector3
 	initialRot engine.Vector3
@@ -164,6 +167,9 @@ func (rb *RigidBody) AttachToWorld(world *PhysicsWorld) {
 		motionType = C.JPH_MotionType_Kinematic
 		layer = LayerMoving
 	}
+	if rb.HasCustomLayer {
+		layer = rb.ObjectLayer
+	}
 
 	bcs := C.JPH_BodyCreationSettings_Create3(jShape, &jPos, &jRot, C.JPH_MotionType(motionType), C.JPH_ObjectLayer(layer))
 	if bcs == nil {
@@ -171,6 +177,7 @@ func (rb *RigidBody) AttachToWorld(world *PhysicsWorld) {
 	}
 	defer C.JPH_BodyCreationSettings_Destroy(bcs)
 
+	C.JPH_BodyCreationSettings_SetUserData(bcs, C.uint64_t(rb.UserData))
 	C.JPH_BodyCreationSettings_SetFriction(bcs, C.float(rb.Friction))
 	C.JPH_BodyCreationSettings_SetRestitution(bcs, C.float(rb.Restitution))
 	C.JPH_BodyCreationSettings_SetLinearDamping(bcs, C.float(rb.LinearDamping))
@@ -252,6 +259,49 @@ func (rb *RigidBody) createJoltShape() *C.JPH_Shape {
 
 // GetID returns the string identifier of this rigid body.
 func (rb *RigidBody) GetID() string { return rb.ID }
+
+// SetUserData assigns the 32-bit entity user_data associated with this Jolt body.
+func (rb *RigidBody) SetUserData(userData uint32) {
+	rb.UserData = userData
+	if rb.World == nil || rb.BodyID == InvalidBodyID {
+		return
+	}
+	rb.World.mu.Lock()
+	iface := rb.World.bodyIface
+	rb.World.mu.Unlock()
+	if iface != nil {
+		C.JPH_BodyInterface_SetUserData(iface, C.JPH_BodyID(rb.BodyID), C.uint64_t(userData))
+	}
+}
+
+// GetUserData returns the 32-bit entity user_data stored on the Jolt body.
+func (rb *RigidBody) GetUserData() uint32 {
+	if rb.World == nil || rb.BodyID == InvalidBodyID {
+		return rb.UserData
+	}
+	rb.World.mu.Lock()
+	iface := rb.World.bodyIface
+	rb.World.mu.Unlock()
+	if iface == nil {
+		return rb.UserData
+	}
+	return uint32(C.JPH_BodyInterface_GetUserData(iface, C.JPH_BodyID(rb.BodyID)))
+}
+
+// SetObjectLayer configures the collision object layer (updating the live Jolt body if attached).
+func (rb *RigidBody) SetObjectLayer(layer uint32) {
+	rb.ObjectLayer = layer
+	rb.HasCustomLayer = true
+	if rb.World == nil || rb.BodyID == InvalidBodyID {
+		return
+	}
+	rb.World.mu.Lock()
+	iface := rb.World.bodyIface
+	rb.World.mu.Unlock()
+	if iface != nil {
+		C.JPH_BodyInterface_SetObjectLayer(iface, C.JPH_BodyID(rb.BodyID), C.JPH_ObjectLayer(layer))
+	}
+}
 
 // GetBodyType returns whether this body is static, kinematic, or dynamic.
 func (rb *RigidBody) GetBodyType() engine.PhysicsBodyType { return rb.BodyType }

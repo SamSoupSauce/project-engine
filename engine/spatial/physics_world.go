@@ -1,7 +1,8 @@
 package spatial
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/thirdparty/joltc/include
+#cgo CFLAGS: -I${SRCDIR}/thirdparty/joltc/include -I${SRCDIR}/../../native
+#cgo CXXFLAGS: -std=c++17 -I${SRCDIR}/thirdparty/joltc/include -I${SRCDIR}/../../native
 #cgo windows,amd64 LDFLAGS: ${SRCDIR}/thirdparty/joltc/lib/windows/amd64/libjoltc.a -lstdc++ -lm
 #cgo linux,amd64 LDFLAGS: -ljoltc -lstdc++ -lm -lpthread
 #cgo darwin LDFLAGS: -ljoltc -lstdc++ -lm
@@ -9,6 +10,7 @@ package spatial
 #include <stdlib.h>
 #include "joltc.h"
 #include "jolt_ffi.h"
+#include "jolt_c_api.h"
 */
 import "C"
 
@@ -23,12 +25,20 @@ import (
 
 // Collision object layers used across static world geometry and dynamic/character entities.
 const (
-	LayerNonMoving  uint32 = 0
-	LayerMoving     uint32 = 1
-	numObjectLayers uint32 = 2
+	LayerNonMoving    uint32 = 0
+	LayerMoving       uint32 = 1
+	LayerInteractable uint32 = 2
+	LayerProp         uint32 = 3
+	numObjectLayers   uint32 = 4
 
-	broadPhaseNonMoving uint8 = 0
-	broadPhaseMoving    uint8 = 1
+	LayerMaskNonMoving    uint16 = 1 << LayerNonMoving
+	LayerMaskMoving       uint16 = 1 << LayerMoving
+	LayerMaskInteractable uint16 = 1 << LayerInteractable
+	LayerMaskProp         uint16 = 1 << LayerProp
+	LayerMaskAll          uint16 = 0xFFFF
+
+	broadPhaseNonMoving uint8  = 0
+	broadPhaseMoving    uint8  = 1
 	numBroadPhaseLayers uint32 = 2
 
 	InvalidBodyID uint32 = 0xFFFFFFFF
@@ -137,13 +147,23 @@ func NewPhysicsWorld(cfg PhysicsWorldConfig) (*PhysicsWorld, error) {
 	}
 
 	objPairFilter := C.JPH_ObjectLayerPairFilterTable_Create(C.uint32_t(numObjectLayers))
-	C.JPH_ObjectLayerPairFilterTable_EnableCollision(objPairFilter, C.JPH_ObjectLayer(LayerNonMoving), C.JPH_ObjectLayer(LayerMoving))
-	C.JPH_ObjectLayerPairFilterTable_EnableCollision(objPairFilter, C.JPH_ObjectLayer(LayerMoving), C.JPH_ObjectLayer(LayerNonMoving))
-	C.JPH_ObjectLayerPairFilterTable_EnableCollision(objPairFilter, C.JPH_ObjectLayer(LayerMoving), C.JPH_ObjectLayer(LayerMoving))
+	for l1 := uint32(0); l1 < numObjectLayers; l1++ {
+		for l2 := l1; l2 < numObjectLayers; l2++ {
+			if l1 == LayerNonMoving && l2 == LayerNonMoving {
+				continue
+			}
+			C.JPH_ObjectLayerPairFilterTable_EnableCollision(objPairFilter, C.JPH_ObjectLayer(l1), C.JPH_ObjectLayer(l2))
+			if l1 != l2 {
+				C.JPH_ObjectLayerPairFilterTable_EnableCollision(objPairFilter, C.JPH_ObjectLayer(l2), C.JPH_ObjectLayer(l1))
+			}
+		}
+	}
 
 	bpLayer := C.JPH_BroadPhaseLayerInterfaceTable_Create(C.uint32_t(numObjectLayers), C.uint32_t(numBroadPhaseLayers))
 	C.JPH_BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(bpLayer, C.JPH_ObjectLayer(LayerNonMoving), C.JPH_BroadPhaseLayer(broadPhaseNonMoving))
 	C.JPH_BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(bpLayer, C.JPH_ObjectLayer(LayerMoving), C.JPH_BroadPhaseLayer(broadPhaseMoving))
+	C.JPH_BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(bpLayer, C.JPH_ObjectLayer(LayerInteractable), C.JPH_BroadPhaseLayer(broadPhaseMoving))
+	C.JPH_BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(bpLayer, C.JPH_ObjectLayer(LayerProp), C.JPH_BroadPhaseLayer(broadPhaseMoving))
 
 	objVsBpFilter := C.JPH_ObjectVsBroadPhaseLayerFilterTable_Create(
 		bpLayer, C.uint32_t(numBroadPhaseLayers),
@@ -360,8 +380,13 @@ func (w *PhysicsWorld) GetGravity() engine.Vector3 {
 	return engine.NewVector3(float32(g.x), float32(g.y), float32(g.z))
 }
 
-// Raycast casts a ray through the Jolt narrowphase query and returns the closest hit.
+// Raycast casts a ray through the Jolt narrowphase query and returns the closest hit across all layers.
 func (w *PhysicsWorld) Raycast(ray engine.Ray, maxDistance float32) engine.RaycastHit {
+	return w.RaycastMask(ray, maxDistance, LayerMaskAll)
+}
+
+// RaycastMask casts a ray filtered by collisionLayerMask (1 << objectLayer) and returns the closest hit.
+func (w *PhysicsWorld) RaycastMask(ray engine.Ray, maxDistance float32, collisionLayerMask uint16) engine.RaycastHit {
 	w.mu.Lock()
 	sys := w.system
 	w.mu.Unlock()
@@ -371,8 +396,8 @@ func (w *PhysicsWorld) Raycast(ray engine.Ray, maxDistance float32) engine.Rayca
 
 	orig := C.JoltVec3{x: C.float(ray.Position.X), y: C.float(ray.Position.Y), z: C.float(ray.Position.Z)}
 	dir := C.JoltVec3{x: C.float(ray.Direction.X), y: C.float(ray.Direction.Y), z: C.float(ray.Direction.Z)}
-	var res C.JoltHitResult
-	if !bool(C.Jolt_RaycastOut(unsafe.Pointer(sys), &orig, &dir, C.float(maxDistance), &res)) {
+	var res C.JoltRaycastHit
+	if !bool(C.Jolt_CastRay(unsafe.Pointer(sys), &orig, &dir, C.float(maxDistance), C.uint16_t(collisionLayerMask), &res)) || !bool(res.has_hit) {
 		return engine.RaycastHit{}
 	}
 
@@ -385,10 +410,11 @@ func (w *PhysicsWorld) Raycast(ray engine.Ray, maxDistance float32) engine.Rayca
 
 	return engine.RaycastHit{
 		Hit:      true,
-		Distance: float32(res.distance),
-		Point:    engine.NewVector3(float32(res.point_x), float32(res.point_y), float32(res.point_z)),
-		Normal:   engine.NewVector3(float32(res.normal_x), float32(res.normal_y), float32(res.normal_z)),
+		Distance: float32(res.fraction) * maxDistance,
+		Point:    engine.NewVector3(float32(res.hit_position.x), float32(res.hit_position.y), float32(res.hit_position.z)),
+		Normal:   engine.NewVector3(float32(res.hit_normal.x), float32(res.hit_normal.y), float32(res.hit_normal.z)),
 		BodyID:   bodyIDStr,
+		UserData: uint32(res.user_data),
 	}
 }
 
