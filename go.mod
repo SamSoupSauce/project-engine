@@ -3,14 +3,14 @@ module github.com/SamSoupSauce/project-engine
 go 1.25.0
 
 require (
+	github.com/AllenDang/cimgui-go v1.6.1
 	github.com/gen2brain/raylib-go/raylib v0.62.2
+	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276
+	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260823155953-d41da22a9587
 	github.com/yuin/gopher-lua v1.1.2
 )
 
 require (
-	github.com/AllenDang/cimgui-go v1.6.1 // indirect
 	github.com/ebitengine/purego v0.11.0 // indirect
-	github.com/go-gl/gl v0.0.0-20260331235117-4566fea9a276 // indirect
-	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260823155953-d41da22a9587 // indirect
 	github.com/jupiterrider/ffi v0.8.0 // indirect
 )

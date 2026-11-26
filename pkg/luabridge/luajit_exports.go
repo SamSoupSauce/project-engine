@@ -136,6 +136,16 @@ func igImDrawList_AddRectFilled(drawList unsafe.Pointer, minX, minY, maxX, maxY 
 	DrawList_AddRectFilled(drawList, minX, minY, maxX, maxY, color, rounding)
 }
 
+//export igImDrawList_PushClipRect
+func igImDrawList_PushClipRect(drawList unsafe.Pointer, minX, minY, maxX, maxY C.float, intersect C.bool) {
+	DrawList_PushClipRect(drawList, minX, minY, maxX, maxY, intersect)
+}
+
+//export igImDrawList_PopClipRect
+func igImDrawList_PopClipRect(drawList unsafe.Pointer) {
+	DrawList_PopClipRect(drawList)
+}
+
 //export igImDrawList_AddText
 func igImDrawList_AddText(drawList unsafe.Pointer, x, y C.float, color C.uint32_t, text *C.char) {
 	DrawList_AddText(drawList, x, y, color, text)

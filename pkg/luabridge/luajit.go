@@ -35,14 +35,21 @@ static int lj_preload_chunk(lua_State* L, const char* name, const char* code, si
 	return 0;
 }
 
-static int lj_call_pointer_handler(lua_State* L, const char* fn_name, const char* node_id, float mx, float my, int* handled_out) {
-	lua_getglobal(L, fn_name);
+static int lj_call_pointer_handler(lua_State* L, const char* fn_name, size_t fn_len, const char* node_id, size_t node_len, float mx, float my, int* handled_out) {
+	char fn_buf[128];
+	if (fn_len >= sizeof(fn_buf)) {
+		return -1;
+	}
+	memcpy(fn_buf, fn_name, fn_len);
+	fn_buf[fn_len] = '\0';
+
+	lua_getglobal(L, fn_buf);
 	if (!lua_isfunction(L, -1)) {
 		lua_pop(L, 1);
 		*handled_out = 0;
 		return 0;
 	}
-	lua_pushstring(L, node_id);
+	lua_pushlstring(L, node_id, node_len);
 	lua_pushnumber(L, (lua_Number)mx);
 	lua_pushnumber(L, (lua_Number)my);
 	int rc = lua_pcall(L, 3, 1, 0);
@@ -88,6 +95,7 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/AllenDang/cimgui-go/imgui"
@@ -102,6 +110,18 @@ local ffi = require("ffi")
 ffi.cdef[[
 	typedef struct {
 		float x, y, w, h;
+	} Rect;
+
+	typedef struct {
+		float x, y;
+	} Vec2;
+
+	typedef struct {
+		uint8_t r, g, b, a;
+	} Color32;
+
+	typedef struct {
+		float x, y, w, h;
 	} UIRect;
 
 	typedef struct {
@@ -109,8 +129,8 @@ ffi.cdef[[
 	} UIColor;
 
 	typedef struct {
-		UIRect bounds;
-		UIColor color;
+		Rect bounds;
+		Color32 color;
 		float rounding;
 		int32_t id_hash;
 		uint8_t visible;
@@ -122,6 +142,8 @@ ffi.cdef[[
 	void DrawList_PopClipRect(void* draw_list);
 	void DrawList_AddText(void* draw_list, float x, float y, uint32_t color, const char* text);
 	void igImDrawList_AddRectFilled(void* draw_list, float min_x, float min_y, float max_x, float max_y, uint32_t color, float rounding);
+	void igImDrawList_PushClipRect(void* draw_list, float min_x, float min_y, float max_x, float max_y, bool intersect);
+	void igImDrawList_PopClipRect(void* draw_list);
 	void igImDrawList_AddText(void* draw_list, float x, float y, uint32_t color, const char* text);
 ]]
 `
@@ -130,7 +152,7 @@ ffi.cdef[[
 // and embedded jit.v / jit.dump profiling support.
 type LuaJITBridge struct {
 	L  *C.lua_State
-	mu reentrantMutex
+	mu sync.Mutex
 }
 
 // NewLuaJITBridge initializes a LuaJIT state, preloads jit.* profiling modules,
@@ -244,20 +266,21 @@ func (b *LuaJITBridge) DoFile(filePath string) error {
 }
 
 // CallPointerHandler invokes a global LuaJIT pointer handler fn(nodeID, mouseX, mouseY)
-// directly via the Lua C stack without string evaluation overhead.
+// directly via the Lua C stack without string evaluation or C heap allocation overhead.
 func (b *LuaJITBridge) CallPointerHandler(handlerName, nodeID string, mouseX, mouseY float32) (bool, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.L == nil {
 		return false, fmt.Errorf("luabridge: luajit state is closed")
 	}
-	cFn := C.CString(handlerName)
-	defer C.free(unsafe.Pointer(cFn))
-	cNode := C.CString(nodeID)
-	defer C.free(unsafe.Pointer(cNode))
+	fnPtr := (*C.char)(unsafe.Pointer(unsafe.StringData(handlerName)))
+	var nodePtr *C.char
+	if len(nodeID) > 0 {
+		nodePtr = (*C.char)(unsafe.Pointer(unsafe.StringData(nodeID)))
+	}
 
 	var handled C.int
-	if rc := C.lj_call_pointer_handler(b.L, cFn, cNode, C.float(mouseX), C.float(mouseY), &handled); rc != 0 {
+	if rc := C.lj_call_pointer_handler(b.L, fnPtr, C.size_t(len(handlerName)), nodePtr, C.size_t(len(nodeID)), C.float(mouseX), C.float(mouseY), &handled); rc != 0 {
 		errMsg := C.GoString(C.lj_last_error(b.L))
 		C.lua_settop(b.L, 0)
 		return false, fmt.Errorf("luabridge: pointer handler %q error: %s", handlerName, errMsg)
