@@ -98,6 +98,15 @@ func buildComponentSummaryJSON(c engine.Component) componentSummaryJSON {
 			"body_type": typed.BodyType,
 			"mass":      typed.Mass,
 		}
+	case *spatial.CharacterController:
+		p := typed.GetPosition()
+		summary.Details = map[string]any{
+			"position":    vec3JSON{X: p.X, Y: p.Y, Z: p.Z},
+			"radius":      typed.Config.Radius,
+			"half_height": typed.Config.HalfHeight,
+			"mass":        typed.Config.Mass,
+			"grounded":    typed.IsGrounded(),
+		}
 	case *spatial.InteractiveComponent:
 		summary.Details = map[string]any{
 			"display_name": typed.DisplayName,

@@ -135,6 +135,22 @@ var componentDocs = map[string]componentDoc{
 			"GetUserData() -> uint32 / SetUserData(val)",
 		},
 	},
+	"CharacterController": {
+		Name:        "CharacterController",
+		GoType:      "*spatial.CharacterController",
+		Description: "Capsule-based character controller for player/NPC movement, grounding, and stairs.",
+		Constraint:  "Syncs with an attached TransformComponent on the owning GameObject.",
+		Fields: []string{
+			"Config.Radius, Config.HalfHeight, Config.MaxSlopeAngleDeg, Config.Mass, Config.Gravity",
+		},
+		Methods: []string{
+			"SetDesiredVelocity(vel)",
+			"Jump(speed)",
+			"SetPosition(pos)",
+			"GetPosition() -> Vector3",
+			"IsGrounded() -> bool",
+		},
+	},
 	"InteractiveComponent": {
 		Name:        "InteractiveComponent",
 		GoType:      "*spatial.InteractiveComponent",
@@ -258,43 +274,98 @@ func FormatComponentHelp(typeNameOrComp string) (string, bool) {
 }
 
 // ResolveHelpArg evaluates `help(...)` against either nothing, a GameObject userdata,
-// any component userdata, or a string topic / component name / registered object name.
+// any component class/instance userdata, or a string topic / component name / registered object name.
 func (b *LuaBridge) ResolveHelpArg(arg lua.LValue) string {
+	txt, err := b.resolveHelpArgWithError(arg, "")
+	if err != nil {
+		return "Error: " + err.Error()
+	}
+	return txt
+}
+
+func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (string, error) {
 	if arg == nil || arg == lua.LNil {
-		return b.FormatHelp("")
+		hint := strings.TrimSpace(exprHint)
+		if hint == "" {
+			if exprHint == "" {
+				return b.FormatHelp(""), nil
+			}
+			return "", fmt.Errorf("no class name or variable exists named %q", hint)
+		}
+		if txt, ok := FormatComponentHelp(hint); ok {
+			return txt, nil
+		}
+		if obj := b.findSceneOrRegisteredObject(hint); obj != nil {
+			return FormatObjectHelp(obj), nil
+		}
+		return "", fmt.Errorf("no class name or variable exists named %q", hint)
 	}
 
 	if ud, ok := arg.(*lua.LUserData); ok && ud != nil && ud.Value != nil {
 		if obj, ok := ud.Value.(*engine.GameObject); ok {
-			return FormatObjectHelp(obj)
+			return FormatObjectHelp(obj), nil
 		}
 		if cc, ok := ud.Value.(*ComponentClass); ok {
 			if txt, found := FormatComponentHelp(cc.Name); found {
-				return txt
+				return txt, nil
 			}
-			return fmt.Sprintf("Component Class: %s (%s)", cc.Name, cc.GoType)
+			return fmt.Sprintf("Component Class: %s (%s)", cc.Name, cc.GoType), nil
 		}
 		if comp, ok := ud.Value.(engine.Component); ok {
 			canon := componentCanonicalName(comp)
 			if txt, found := FormatComponentHelp(canon); found {
-				return txt
+				return txt, nil
 			}
-			return fmt.Sprintf("Component %s (%T)", canon, comp)
+			return formatReflectedComponentHelp(comp), nil
 		}
-		return SerializeUserDataFallback(b.L, ud)
+		return SerializeUserDataFallback(b.L, ud), nil
 	}
 
-	topic := strings.TrimSpace(arg.String())
-	if topic == "" {
-		return b.FormatHelp("")
+	if s, ok := arg.(lua.LString); ok {
+		topic := strings.TrimSpace(string(s))
+		if topic == "" {
+			return b.FormatHelp(""), nil
+		}
+		if txt, ok := b.formatHelpTopicOnly(topic); ok {
+			return txt, nil
+		}
+		if txt, ok := FormatComponentHelp(topic); ok {
+			return txt, nil
+		}
+		if obj := b.findSceneOrRegisteredObject(topic); obj != nil {
+			return FormatObjectHelp(obj), nil
+		}
+		return "", fmt.Errorf("no class name or variable exists named %q", topic)
 	}
-	if txt, ok := FormatComponentHelp(topic); ok {
-		return txt
+
+	return fmt.Sprintf("Lua %s: %s", arg.Type().String(), SerializeLuaValue(b.L, arg)), nil
+}
+
+func formatReflectedComponentHelp(comp engine.Component) string {
+	t := reflect.TypeOf(comp)
+	elem := t
+	if elem.Kind() == reflect.Ptr {
+		elem = elem.Elem()
 	}
-	if obj := b.findSceneOrRegisteredObject(topic); obj != nil {
-		return FormatObjectHelp(obj)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("=== Component Help: %s (%s) ===\n", elem.Name(), t.String()))
+	if elem.Kind() == reflect.Struct && elem.NumField() > 0 {
+		sb.WriteString("Fields / Properties:\n")
+		for i := 0; i < elem.NumField(); i++ {
+			f := elem.Field(i)
+			if f.IsExported() {
+				sb.WriteString(fmt.Sprintf("  %s (%s)\n", f.Name, f.Type.String()))
+			}
+		}
 	}
-	return b.FormatHelp(topic)
+	if t.NumMethod() > 0 {
+		sb.WriteString("Methods:\n")
+		for i := 0; i < t.NumMethod(); i++ {
+			m := t.Method(i)
+			sb.WriteString(fmt.Sprintf("  %s\n", m.Name))
+		}
+	}
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 func SerializeUserDataFallback(L *lua.LState, ud *lua.LUserData) string {

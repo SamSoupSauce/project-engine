@@ -93,6 +93,7 @@ func (b *LuaBridge) registerComponentClassGlobals() {
 		{[]string{"Renderable"}, "Renderable", "*engine.Renderable"},
 		{[]string{"Renderable2D"}, "Renderable2D", "*engine.Renderable2D"},
 		{[]string{"RigidBody"}, "RigidBody", "*spatial.RigidBody"},
+		{[]string{"CharacterController"}, "CharacterController", "*spatial.CharacterController"},
 		{[]string{"InteractiveComponent", "Interactive"}, "InteractiveComponent", "*spatial.InteractiveComponent"},
 		{[]string{"FractureComponent", "Fracture"}, "FractureComponent", "*spatial.FractureComponent"},
 		{[]string{"ScriptComponent"}, "ScriptComponent", "*luabridge.ScriptComponent"},
@@ -427,6 +428,8 @@ func resolveComponentAlias(name string) string {
 		return "Renderable2D"
 	case "rigidbody", "rigidbodycomponent", "*spatial.rigidbody":
 		return "RigidBody"
+	case "charactercontroller", "*spatial.charactercontroller":
+		return "CharacterController"
 	case "interactive", "interactivecomponent", "*spatial.interactivecomponent":
 		return "InteractiveComponent"
 	case "fracture", "fracturecomponent", "*spatial.fracturecomponent":
@@ -452,6 +455,8 @@ func componentReflectType(name string) reflect.Type {
 		return reflect.TypeOf((*engine.Renderable2D)(nil))
 	case "RigidBody":
 		return reflect.TypeOf((*spatial.RigidBody)(nil))
+	case "CharacterController":
+		return reflect.TypeOf((*spatial.CharacterController)(nil))
 	case "InteractiveComponent":
 		return reflect.TypeOf((*spatial.InteractiveComponent)(nil))
 	case "FractureComponent":
@@ -477,6 +482,8 @@ func componentCanonicalName(comp engine.Component) string {
 		return "Renderable2D"
 	case *spatial.RigidBody:
 		return "RigidBody"
+	case *spatial.CharacterController:
+		return "CharacterController"
 	case *spatial.InteractiveComponent:
 		return "InteractiveComponent"
 	case *spatial.FractureComponent:

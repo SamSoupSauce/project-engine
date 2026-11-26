@@ -122,10 +122,24 @@ func TestLuaGenericComponentAccessAndRenderableConstraint(t *testing.T) {
 		t.Fatalf("expected class-constant help output, got:\n%s\n%s\n%s", meshHelp, transformClassHelp, meshRendHelp)
 	}
 
-	// Read-only constant check: mutating class constant raises error in Lua.
+	// Read-only constant & unknown class/variable error checks:
 	roRes := console.ExecuteCommand(`return pcall(function() Mesh.name = "hack" end)`)
 	if !strings.HasPrefix(roRes, "false") {
 		t.Fatalf("expected ComponentClass constant to reject mutation, got %q", roRes)
+	}
+	for _, unknownCmd := range []string{`help(UnknownClass)`, `help("UnknownClass")`, `help UnknownClass`} {
+		unkOut := console.ExecuteCommand(unknownCmd)
+		if !strings.Contains(unkOut, "Error:") || !strings.Contains(unkOut, `no class name or variable exists named "UnknownClass"`) {
+			t.Fatalf("expected explicit missing class/variable error for %q, got %q", unknownCmd, unkOut)
+		}
+	}
+	ccHelp := console.ExecuteCommand(`help(CharacterController)`)
+	if !strings.Contains(ccHelp, "Component Help: CharacterController (*spatial.CharacterController)") {
+		t.Fatalf("expected help(CharacterController) component menu, got:\n%s", ccHelp)
+	}
+	varHelp := console.ExecuteCommand(`myProbe = { a = 1 }; return help(myProbe)`)
+	if strings.Contains(varHelp, "Error:") {
+		t.Fatalf("expected help(myProbe) for defined variable not to error, got %q", varHelp)
 	}
 
 	// 4. selected:GetComponent(<Class>) returns JSON dump if present or Nil if missing.

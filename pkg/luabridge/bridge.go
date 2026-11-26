@@ -30,6 +30,7 @@ type LuaBridge struct {
 	stateMu       reentrantMutex
 	outputLogs    []string
 	execCapture   *[]string
+	pendingHelpArg string
 	OnScriptError func(scriptPath, hook string, err error)
 }
 
@@ -210,6 +211,10 @@ func (b *LuaBridge) executeWithStreamFlag(input string) (string, bool, error) {
 
 	// 3. Fallback: Evaluate as Lua expression first (REPL style `return <expr>`),
 	// falling back to statement execution when not a pure expression.
+	if helpArg, ok := extractHelpCallArg(trimmed); ok {
+		b.pendingHelpArg = helpArg
+		defer func() { b.pendingHelpArg = "" }()
+	}
 	baseTop := b.L.GetTop()
 	var fn *lua.LFunction
 	var err error
@@ -253,24 +258,8 @@ func (b *LuaBridge) executeWithStreamFlag(input string) (string, bool, error) {
 
 // FormatHelp builds readable documentation lines for commands and built-in console/Lua helpers.
 func (b *LuaBridge) FormatHelp(topic string) string {
-	t := strings.ToLower(strings.TrimSpace(topic))
-	switch t {
-	case "pick", "selected", "picked":
-		return strings.Join([]string{
-			"Object Picking Help:",
-			"  pick(nameOrId)    Select a GameObject and bind Lua global `selected`",
-			"  picked()          Return the currently selected GameObject (or nil)",
-			"  unpick()          Clear current object selection",
-			"  list_objects()    List registered and scene GameObjects",
-			"  Viewport: Click 'Pick Object' in Console (or Shift+Click in viewport) to ray-pick 3D objects",
-		}, "\n")
-	case "stdio", "print":
-		return strings.Join([]string{
-			"Console Output & Stdio Redirection:",
-			"  print(...)        Prints Lua values into Console output buffer",
-			"  io.write(...)     Forwards formatted writes into Console output",
-			"  os.Stdout/Stderr  Redirected into Console when Console:RedirectStdio() is active",
-		}, "\n")
+	if txt, ok := b.formatHelpTopicOnly(topic); ok {
+		return txt
 	}
 
 	b.dataMu.RLock()
@@ -291,12 +280,65 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 		"  picked() / list_objects()   Inspect active target or list scene GameObjects",
 		"  get_entity_position(name)   Return {x, y, z} world position table",
 		"  set_entity_active(name, b)  Toggle GameObject.Active",
-		"Component Classes: Transform, Mesh, MeshRenderable, Renderable, Renderable2D, RigidBody, InteractiveComponent, FractureComponent, ScriptComponent",
+		"Component Classes: Transform, Mesh, MeshRenderable, Renderable, Renderable2D, RigidBody, CharacterController, InteractiveComponent, FractureComponent, ScriptComponent",
 	}
 	if len(cmds) > 0 {
 		lines = append(lines, "Console Commands: "+strings.Join(cmds, ", "))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (b *LuaBridge) formatHelpTopicOnly(topic string) (string, bool) {
+	t := strings.ToLower(strings.TrimSpace(topic))
+	switch t {
+	case "pick", "selected", "picked":
+		return strings.Join([]string{
+			"Object Picking Help:",
+			"  pick(nameOrId)    Select a GameObject and bind Lua global `selected`",
+			"  picked()          Return the currently selected GameObject (or nil)",
+			"  unpick()          Clear current object selection",
+			"  list_objects()    List registered and scene GameObjects",
+			"  Viewport: Click 'Pick Object' in Console (or Shift+Click in viewport) to ray-pick 3D objects",
+		}, "\n"), true
+	case "stdio", "print":
+		return strings.Join([]string{
+			"Console Output & Stdio Redirection:",
+			"  print(...)        Prints Lua values into Console output buffer",
+			"  io.write(...)     Forwards formatted writes into Console output",
+			"  os.Stdout/Stderr  Redirected into Console when Console:RedirectStdio() is active",
+		}, "\n"), true
+	default:
+		return "", false
+	}
+}
+
+func extractHelpCallArg(input string) (string, bool) {
+	s := strings.TrimSpace(input)
+	if !strings.HasPrefix(s, "help") {
+		return "", false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(s, "help"))
+	if !strings.HasPrefix(rest, "(") || !strings.HasSuffix(rest, ")") {
+		return "", false
+	}
+	inner := rest[1 : len(rest)-1]
+	// Only match a single top-level call `help(...)` with balanced parentheses.
+	depth := 0
+	for _, r := range inner {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return "", false
+			}
+		}
+	}
+	if depth != 0 {
+		return "", false
+	}
+	return strings.TrimSpace(inner), true
 }
 
 func (b *LuaBridge) registerConsoleCommands() {
@@ -316,8 +358,10 @@ func (b *LuaBridge) registerConsoleCommands() {
 				txt = compHelp
 			} else if obj := b.findSceneOrRegisteredObject(argStr); obj != nil {
 				txt = FormatObjectHelp(obj)
+			} else if topicHelp, ok := b.formatHelpTopicOnly(argStr); ok {
+				txt = topicHelp
 			} else {
-				txt = b.FormatHelp(argStr)
+				return "", fmt.Errorf("no class name or variable exists named %q", argStr)
 			}
 		}
 		b.EmitConsole(txt, LineInfo)
@@ -369,13 +413,17 @@ func (b *LuaBridge) registerStandardEngineAPIs() {
 		}))
 	}
 
-	// help([target]) callable Lua function supporting topic strings, GameObjects, or components.
+	// help([target]) callable Lua function supporting topic strings, GameObjects, or component classes/instances.
 	b.L.SetGlobal("help", b.L.NewFunction(func(L *lua.LState) int {
-		var arg lua.LValue
-		if L.GetTop() >= 1 {
-			arg = L.Get(1)
+		if L.GetTop() == 0 {
+			b.EmitConsole(b.FormatHelp(""), LineInfo)
+			return 0
 		}
-		txt := b.ResolveHelpArg(arg)
+		txt, err := b.resolveHelpArgWithError(L.Get(1), b.pendingHelpArg)
+		if err != nil {
+			L.RaiseError("%s", err.Error())
+			return 0
+		}
 		b.EmitConsole(txt, LineInfo)
 		return 0
 	}))
