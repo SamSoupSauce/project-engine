@@ -20,14 +20,27 @@ const (
 	ShapeBox ShapeKind = iota
 	ShapeSphere
 	ShapeCapsule
+	ShapeConvexHull
 )
 
 // ShapeDesc describes collision dimensions for a RigidBody component.
 type ShapeDesc struct {
 	Kind        ShapeKind
-	HalfExtents engine.Vector3 // Used by ShapeBox
-	Radius      float32        // Used by ShapeSphere and ShapeCapsule
-	HalfHeight  float32        // Used by ShapeCapsule (cylinder half-height)
+	HalfExtents engine.Vector3   // Used by ShapeBox (and ConvexHull fallback)
+	Radius      float32          // Used by ShapeSphere and ShapeCapsule
+	HalfHeight  float32          // Used by ShapeCapsule (cylinder half-height)
+	HullPoints  []engine.Vector3 // Used by ShapeConvexHull (extracted from .gltf/.glb meshes)
+}
+
+// ConvexHullShapeDesc creates a convex hull ShapeDesc from local-space vertices.
+func ConvexHullShapeDesc(points []engine.Vector3, fallbackHalfExtents engine.Vector3) ShapeDesc {
+	pts := make([]engine.Vector3, len(points))
+	copy(pts, points)
+	return ShapeDesc{
+		Kind:        ShapeConvexHull,
+		HullPoints:  pts,
+		HalfExtents: fallbackHalfExtents,
+	}
 }
 
 // BoxShapeDesc creates a box ShapeDesc from half-extents.
@@ -230,6 +243,22 @@ func (rb *RigidBody) createJoltShape() *C.JPH_Shape {
 			r = 0.25
 		}
 		return (*C.JPH_Shape)(unsafe.Pointer(C.JPH_CapsuleShape_Create(C.float(hh), C.float(r))))
+	case ShapeConvexHull:
+		if len(rb.Shape.HullPoints) >= 4 {
+			pts := make([]C.JPH_Vec3, len(rb.Shape.HullPoints))
+			for i, p := range rb.Shape.HullPoints {
+				pts[i] = C.JPH_Vec3{x: C.float(p.X), y: C.float(p.Y), z: C.float(p.Z)}
+			}
+			settings := C.JPH_ConvexHullShapeSettings_Create(&pts[0], C.uint32_t(len(pts)), C.float(C.JPH_DEFAULT_CONVEX_RADIUS))
+			if settings != nil {
+				hull := C.JPH_ConvexHullShapeSettings_CreateShape(settings)
+				C.JPH_ShapeSettings_Destroy((*C.JPH_ShapeSettings)(unsafe.Pointer(settings)))
+				if hull != nil {
+					return (*C.JPH_Shape)(unsafe.Pointer(hull))
+				}
+			}
+		}
+		fallthrough
 	default:
 		hx, hy, hz := rb.Shape.HalfExtents.X, rb.Shape.HalfExtents.Y, rb.Shape.HalfExtents.Z
 		if hx <= 0 {
