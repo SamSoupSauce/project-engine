@@ -92,8 +92,16 @@ func (go_ *GameObject) GetComponent(targetType reflect.Type) Component {
 	go_.mu.RLock()
 	defer go_.mu.RUnlock()
 
+	if targetType == nil {
+		return nil
+	}
+	isIface := targetType.Kind() == reflect.Interface
 	for _, c := range go_.Components {
-		if reflect.TypeOf(c) == targetType || reflect.TypeOf(c).Implements(targetType) {
+		if c == nil {
+			continue
+		}
+		cType := reflect.TypeOf(c)
+		if cType == targetType || (isIface && cType.Implements(targetType)) {
 			return c
 		}
 	}

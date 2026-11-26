@@ -283,7 +283,40 @@ func renderableMethods() map[string]lua.LGFunction {
 			L.Push(lua.LNumber(r.Flags))
 			return 1
 		},
+		"SetOutlined": func(L *lua.LState) int {
+			r := checkRenderable(L, 1)
+			r.SetOutlined(L.CheckBool(2))
+			return 0
+		},
+		"IsOutlined": func(L *lua.LState) int {
+			r := checkRenderable(L, 1)
+			L.Push(lua.LBool(r.IsOutlined()))
+			return 1
+		},
+		"SetOutlineColor": func(L *lua.LState) int {
+			r := checkRenderable(L, 1)
+			r.SetOutlineColor(engine.Color{
+				R: luaChannelToByte(float64(L.CheckNumber(2))),
+				G: luaChannelToByte(float64(L.CheckNumber(3))),
+				B: luaChannelToByte(float64(L.CheckNumber(4))),
+				A: luaChannelToByte(float64(L.OptNumber(5, 1.0))),
+			})
+			return 0
+		},
 	}
+}
+
+func luaChannelToByte(v float64) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v <= 1.0 {
+		return uint8(v*255.0 + 0.5)
+	}
+	if v >= 255.0 {
+		return 255
+	}
+	return uint8(v + 0.5)
 }
 
 func findRenderable(obj *engine.GameObject) *engine.Renderable {

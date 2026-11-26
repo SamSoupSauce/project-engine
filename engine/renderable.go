@@ -11,6 +11,7 @@ const (
 	FlagWireframe      RenderFlags = 1 << 3
 	FlagTransparent    RenderFlags = 1 << 4
 	FlagOverrideParent RenderFlags = 1 << 5 // Ignores inherited parent visibility/render modes
+	FlagOutline        RenderFlags = 1 << 6 // Marks entity for stencil-masked glowing outline pass
 )
 
 // Has checks if a specific flag bit is enabled.
@@ -22,13 +23,15 @@ func (f RenderFlags) Has(flag RenderFlags) bool {
 // Rather than immediately calling GPU draw commands during scene traversal,
 // Renderable instances are evaluated hierarchically and emitted into a flat DrawCommand buffer.
 type Renderable struct {
-	MeshID     string      // GPU buffer or primitive mesh handle (e.g. "cube", "quad", "mesh_42")
-	MaterialID string      // Shader/pipeline state handle (e.g. "default", "unlit", "siding")
-	ScriptName string      // Optional script prefix override for <ScriptName>_render(self, gfx)
-	Flags      RenderFlags // Pipeline bitmask
-	Color      Color       // Surface base tint
-	WireColor  Color       // Wireframe contour color
-	CustomSize *Vector3    // Optional explicit dimensions (overriding mesh defaults)
+	MeshID       string      // GPU buffer or primitive mesh handle (e.g. "cube", "quad", "mesh_42")
+	MaterialID   string      // Shader/pipeline state handle (e.g. "default", "unlit", "siding")
+	ScriptName   string      // Optional script prefix override for <ScriptName>_render(self, gfx)
+	Flags        RenderFlags // Pipeline bitmask
+	Color        Color       // Surface base tint
+	WireColor    Color       // Wireframe contour color
+	OutlineColor Color       // Emissive border highlight tint used when FlagOutline is set
+	OutlineWidth float32     // Outline inflation/border factor (default 1.04)
+	CustomSize   *Vector3    // Optional explicit dimensions (overriding mesh defaults)
 
 	Owner *GameObject
 }
@@ -36,11 +39,13 @@ type Renderable struct {
 // NewRenderable creates a visible renderable with default white color.
 func NewRenderable(meshID, materialID string) *Renderable {
 	return &Renderable{
-		MeshID:     meshID,
-		MaterialID: materialID,
-		Flags:      FlagVisible | FlagCastShadow,
-		Color:      White,
-		WireColor:  Black,
+		MeshID:       meshID,
+		MaterialID:   materialID,
+		Flags:        FlagVisible | FlagCastShadow,
+		Color:        White,
+		WireColor:    Black,
+		OutlineColor: Color{R: 255, G: 199, B: 51, A: 255},
+		OutlineWidth: 1.04,
 	}
 }
 
@@ -73,6 +78,31 @@ func (r *Renderable) IsVisible() bool {
 	return r.Flags.Has(FlagVisible)
 }
 
+// SetOutlined toggles FlagOutline on this Renderable for reticle highlight rendering.
+func (r *Renderable) SetOutlined(enabled bool) {
+	if r == nil {
+		return
+	}
+	if enabled {
+		r.Flags |= FlagOutline
+	} else {
+		r.Flags &^= FlagOutline
+	}
+}
+
+// IsOutlined reports whether FlagOutline is currently active on this Renderable.
+func (r *Renderable) IsOutlined() bool {
+	return r != nil && r.Flags.Has(FlagOutline)
+}
+
+// SetOutlineColor sets the highlight tint color (preserving default if alpha is zero).
+func (r *Renderable) SetOutlineColor(c Color) {
+	if r == nil {
+		return
+	}
+	r.OutlineColor = c
+}
+
 // DrawCommand is a flat, self-contained draw instruction produced during the camera extraction pass.
 type DrawCommand struct {
 	WorldTransform Transform
@@ -81,6 +111,8 @@ type DrawCommand struct {
 	Flags          RenderFlags
 	Color          Color
 	WireColor      Color
+	OutlineColor   Color
+	OutlineWidth   float32
 	CustomSize     *Vector3
 }
 
@@ -154,6 +186,8 @@ func (b *RenderPassBuffer) extractNode(node *GameObject, inheritedFlags RenderFl
 				Flags:          effectiveFlags,
 				Color:          renderable.Color,
 				WireColor:      renderable.WireColor,
+				OutlineColor:   renderable.OutlineColor,
+				OutlineWidth:   renderable.OutlineWidth,
 				CustomSize:     renderable.CustomSize,
 			})
 		}
