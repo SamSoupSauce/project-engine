@@ -21,16 +21,16 @@ func TestScreenPointToRayAndSceneObjectPicking(t *testing.T) {
 
 	scene := NewBaseScene("pick_scene")
 	cube := NewGameObject("cube_1", "RainbowCube")
-	cube.Transform.Position = NewVector3(0, 0, 0)
+	cube.EnsureTransform().SetPosition(NewVector3(0, 0, 0))
 	scene.AddObject(cube)
 
 	farObj := NewGameObject("far_cube", "FarCube")
-	farObj.Transform.Position = NewVector3(0, 0, -6)
+	farObj.EnsureTransform().SetPosition(NewVector3(0, 0, -6))
 	scene.AddObject(farObj)
 
 	// Pure 2D HUD object at origin must not block 3D picking.
 	hud := NewGameObject("hud_overlay", "HUD")
-	hud.Transform.Position = NewVector3(0, 0, 2)
+	hud.EnsureTransform().SetPosition(NewVector3(0, 0, 2))
 	hud.AddComponent(NewRenderable2D(0, 100, 20))
 	scene.AddObject(hud)
 

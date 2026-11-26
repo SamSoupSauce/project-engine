@@ -421,7 +421,7 @@ func (c *ConstraintComponent) Attach(parentObj *engine.GameObject) error {
 
 	anchor := c.Anchor
 	if anchor.X == 0 && anchor.Y == 0 && anchor.Z == 0 {
-		anchor = c.Owner.Transform.Position
+		anchor = c.Owner.GetWorldTransform().Position
 	}
 	joint, err := c.World.CreateBreakableJoint(parentRB, childRB, spatial.JointDesc{
 		ID:          c.Owner.ID + "_joint",
@@ -499,7 +499,7 @@ func (h *HazardComponent) Configure(cfg HazardConfig) *hazards.HazardShard {
 	}
 	pos := cfg.Position
 	if h.Owner != nil {
-		h.Owner.Transform.Position = pos
+		h.Owner.EnsureTransform().SetPosition(pos)
 	}
 
 	if h.System == nil {

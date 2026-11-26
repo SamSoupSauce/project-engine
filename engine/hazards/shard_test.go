@@ -20,13 +20,13 @@ func TestCeramicShatterFootwearTraversalAlertsAndSweepKick(t *testing.T) {
 	// Static floor beneath dropped ceramic lamp.
 	floorRB := spatial.NewRigidBody("floor", world, engine.BodyStatic, spatial.BoxShapeDesc(10, 0.5, 10))
 	floorObj := engine.NewGameObject("floor", "ConcreteFloor")
-	floorObj.Transform.Position = engine.NewVector3(0, -0.5, -2)
+	floorObj.EnsureTransform().SetPosition(engine.NewVector3(0, -0.5, -2))
 	floorObj.AddComponent(floorRB)
 	scene.AddObject(floorObj)
 
 	// Fragile ceramic table lamp.
 	lamp := engine.NewGameObject("lamp_01", "Ceramic Table Lamp")
-	lamp.Transform.Position = engine.NewVector3(0, 0.2, -2)
+	lamp.EnsureTransform().SetPosition(engine.NewVector3(0, 0.2, -2))
 	lampRB := spatial.NewRigidBody("lamp_rb", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.18, 0.25, 0.18))
 	lampRB.Mass = 1.8
 	lamp.AddComponent(lampRB)

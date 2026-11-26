@@ -18,7 +18,7 @@ func TestControllerTapHoldGrabThrowAndHighlightClear(t *testing.T) {
 
 	// Static cabinet with primary LuaHook & secondary ContextVerbs.
 	cabinet := engine.NewGameObject("cabinet", "Supply Cabinet")
-	cabinet.Transform.Position = engine.NewVector3(0, 1, -3)
+	cabinet.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -3))
 	cabinetRend := engine.NewRenderable("cabinet_mesh", "metal")
 	cabinet.AddComponent(cabinetRend)
 	cabinetRB := spatial.NewRigidBody("cabinet_body", world, engine.BodyStatic, spatial.BoxShapeDesc(0.6, 1.0, 0.5))
@@ -34,7 +34,7 @@ func TestControllerTapHoldGrabThrowAndHighlightClear(t *testing.T) {
 
 	// Dynamic loose prop positioned to the right (x=5, y=2, z=-3).
 	crate := engine.NewGameObject("crate", "Small Crate")
-	crate.Transform.Position = engine.NewVector3(5, 2, -3)
+	crate.EnsureTransform().SetPosition(engine.NewVector3(5, 2, -3))
 	crateRend := engine.NewRenderable("crate_mesh", "wood")
 	crate.AddComponent(crateRend)
 	crateRB := spatial.NewRigidBody("crate_body", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.35, 0.35, 0.35))

@@ -35,6 +35,7 @@ type GLTFMaterial struct {
 type GLTFPrimitive struct {
 	Positions     []Vector3
 	Normals       []Vector3
+	Colors        [][4]float32
 	TexCoords     []Vector2
 	Indices       []uint32
 	MaterialIndex int
@@ -260,6 +261,13 @@ func ParseGLTFBytes(data []byte, baseDir string) (*GLTFAsset, error) {
 				}
 				gp.Normals = norms
 			}
+			if colAcc, ok := p.Attributes["COLOR_0"]; ok {
+				cols, err := readColorAccessor(&doc, buffers, colAcc)
+				if err != nil {
+					return nil, err
+				}
+				gp.Colors = cols
+			}
 			if uvAcc, ok := p.Attributes["TEXCOORD_0"]; ok {
 				uvs, err := readVec2Accessor(&doc, buffers, uvAcc)
 				if err != nil {
@@ -440,6 +448,36 @@ func readVec2Accessor(doc *gltfDoc, buffers [][]byte, accIdx int) ([]Vector2, er
 		res[i] = Vector2{
 			X: math.Float32frombits(binary.LittleEndian.Uint32(raw[off : off+4])),
 			Y: math.Float32frombits(binary.LittleEndian.Uint32(raw[off+4 : off+8])),
+		}
+	}
+	return res, nil
+}
+
+func readColorAccessor(doc *gltfDoc, buffers [][]byte, accIdx int) ([][4]float32, error) {
+	acc := doc.Accessors[accIdx]
+	if acc.ComponentType != gltfTypeFloat || (acc.Type != "VEC3" && acc.Type != "VEC4") {
+		return nil, fmt.Errorf("accessor %d expected float VEC3 or VEC4 color", accIdx)
+	}
+	elemBytes := 12
+	if acc.Type == "VEC4" {
+		elemBytes = 16
+	}
+	raw, stride, count, err := accessorSlice(doc, buffers, accIdx, elemBytes)
+	if err != nil {
+		return nil, err
+	}
+	res := make([][4]float32, count)
+	for i := 0; i < count; i++ {
+		off := i * stride
+		a := float32(1.0)
+		if elemBytes == 16 {
+			a = math.Float32frombits(binary.LittleEndian.Uint32(raw[off+12 : off+16]))
+		}
+		res[i] = [4]float32{
+			math.Float32frombits(binary.LittleEndian.Uint32(raw[off : off+4])),
+			math.Float32frombits(binary.LittleEndian.Uint32(raw[off+4 : off+8])),
+			math.Float32frombits(binary.LittleEndian.Uint32(raw[off+8 : off+12])),
+			a,
 		}
 	}
 	return res, nil

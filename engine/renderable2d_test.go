@@ -198,7 +198,7 @@ func TestRenderable2DZIndexSortingAnchorsAndVisibility(t *testing.T) {
 	fg.AddComponent(fgR)
 
 	bg := NewGameObject("panel", "Panel")
-	bg.Transform.Position = NewVector3(10, 20, 0)
+	bg.EnsureTransform().SetPosition(NewVector3(10, 20, 0))
 	bgR := NewRenderable2D(1, 200, 80)
 	bgR.Anchor = AnchorTopLeft
 	bgR.ZIndex = 1
@@ -210,7 +210,7 @@ func TestRenderable2DZIndexSortingAnchorsAndVisibility(t *testing.T) {
 	hidden.AddComponent(hiddenR)
 
 	corner := NewGameObject("minimap", "Minimap")
-	corner.Transform.Position = NewVector3(-10, -10, 0)
+	corner.EnsureTransform().SetPosition(NewVector3(-10, -10, 0))
 	cornerR := NewRenderable2D(3, 100, 100)
 	cornerR.Anchor = AnchorBottomRight
 	cornerR.ZIndex = 10
@@ -271,7 +271,7 @@ func TestOrthoBatcher2DLiveGLFWOpenGL3(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		go2d := NewGameObject("sprite_"+string(rune('a'+i)), "Sprite")
-		go2d.Transform.Position = NewVector3(float32(i*40), 20, 0)
+		go2d.EnsureTransform().SetPosition(NewVector3(float32(i*40), 20, 0))
 		r2d := NewRenderable2D(texID, 32, 32)
 		r2d.ZIndex = int32(i)
 		go2d.AddComponent(r2d)

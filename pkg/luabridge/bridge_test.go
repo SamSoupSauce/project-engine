@@ -68,7 +68,7 @@ func TestLuaBridgeGameObjectBinding(t *testing.T) {
 	defer bridge.Close()
 
 	obj := engine.NewGameObject("player_1", "Player")
-	obj.Transform.Position = engine.NewVector3(12.5, 3.0, -8.0)
+	obj.EnsureTransform().SetPosition(engine.NewVector3(12.5, 3.0, -8.0))
 	obj.Active = true
 
 	bridge.RegisterGameObject("Player", obj)

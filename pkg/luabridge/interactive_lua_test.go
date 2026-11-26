@@ -20,7 +20,7 @@ func TestLuaInteractiveBindingsAndVerbDispatch(t *testing.T) {
 
 	scene := engine.NewBaseScene("lua_interact")
 	crate := engine.NewGameObject("door_01", "Blast Door")
-	crate.Transform.Position = engine.NewVector3(0, 1, -3)
+	crate.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -3))
 	rend := engine.NewRenderable("door_mesh", "steel")
 	crate.AddComponent(rend)
 	rb := spatial.NewRigidBody("door_body", world, engine.BodyStatic, spatial.BoxShapeDesc(0.5, 1.0, 0.2))

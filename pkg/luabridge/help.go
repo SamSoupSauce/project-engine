@@ -70,6 +70,37 @@ var componentDocs = map[string]componentDoc{
 			"GetTransform() -> Transform",
 		},
 	},
+	"Mesh": {
+		Name:        "Mesh",
+		GoType:      "*engine.MeshComponent",
+		Description: "Loads and holds a glTF 2.0 / GLB 3D mesh asset (vertices, colors, normals, bounds).",
+		Constraint:  "None (required by MeshRenderable components).",
+		Fields: []string{
+			"file_path / FilePath  (string .gltf/.glb path)",
+		},
+		Methods: []string{
+			"Load(filepath) -> bool, errString",
+			"GetPath() -> string",
+			"GetTriangleCount() -> int",
+			"GetBounds() -> {min={x,y,z}, max={x,y,z}}",
+		},
+	},
+	"MeshRenderable": {
+		Name:        "MeshRenderable",
+		GoType:      "*engine.MeshRenderable",
+		Description: "Concrete OpenGL 3.3 Core Renderable component drawing an entity's MeshComponent.",
+		Constraint:  "Requires both Transform (*engine.TransformComponent) and loaded Mesh (*engine.MeshComponent).",
+		Fields: []string{
+			"visible, wireframe",
+		},
+		Methods: []string{
+			"SetVisible(bool) / IsVisible() -> bool",
+			"SetWireframe(bool) / IsWireframe() -> bool",
+			"ValidateConstraint() -> bool, errString",
+			"GetTransform() -> Transform",
+			"GetMesh() -> Mesh",
+		},
+	},
 	"Renderable2D": {
 		Name:        "Renderable2D",
 		GoType:      "*engine.Renderable2D",
@@ -159,13 +190,12 @@ func FormatObjectHelp(obj *engine.GameObject) string {
 		return "Object: nil"
 	}
 
-	pos := obj.GetWorldTransform().Position
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("=== GameObject Help: %s (%s) ===\n", obj.Name, obj.ID))
-	sb.WriteString(fmt.Sprintf("Active: %v | Spawned: %v | Position: (%.2f, %.2f, %.2f)\n",
-		obj.Active, obj.IsSpawned(), pos.X, pos.Y, pos.Z))
+	sb.WriteString(fmt.Sprintf("Active: %v | Spawned: %v\n",
+		obj.Active, obj.IsSpawned()))
 
-	sb.WriteString("Properties: id, name, active, scene, position, rotation, scale, transform\n")
+	sb.WriteString("Properties: id, name, active, scene\n")
 
 	methodsMap := gameObjectMethods()
 	methodNames := make([]string, 0, len(methodsMap))
@@ -270,6 +300,10 @@ func summarizeComponentShort(c engine.Component) string {
 	case *engine.TransformComponent:
 		p := comp.GetPosition()
 		return fmt.Sprintf("pos=(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z)
+	case *engine.MeshComponent:
+		return fmt.Sprintf("path=%q tris=%d", comp.FilePath, comp.TriangleCount())
+	case *engine.MeshRenderable:
+		return fmt.Sprintf("visible=%v valid=%v", comp.Visible, comp.ValidateConstraint() == nil)
 	case *engine.Renderable:
 		return fmt.Sprintf("mesh=%q mat=%q visible=%v", comp.MeshID, comp.MaterialID, comp.IsVisible())
 	case *engine.Renderable2D:

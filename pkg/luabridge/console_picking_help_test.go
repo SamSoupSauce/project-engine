@@ -97,12 +97,12 @@ func TestConsoleObjectPickingAndLuaSelection(t *testing.T) {
 	}
 
 	cube := engine.NewGameObject("rainbow_cube", "RainbowCube")
-	cube.Transform.Position = engine.NewVector3(0, 0, 0)
+	cube.EnsureTransform().SetPosition(engine.NewVector3(0, 0, 0))
 	scene.AddObject(cube)
 
 	console.BindScene(scene)
 
-	// Screen center raycast picks RainbowCube and binds Lua globals `selected` / `picked`.
+	// Screen center raycast picks RainbowCube and binds Lua global `selected`.
 	res := console.PickAtScreenPos(scene.Camera, 640, 360, 1280, 720)
 	if !res.Hit || res.Object != cube {
 		t.Fatalf("expected center screen pick to hit rainbow_cube, got %+v", res)
@@ -112,10 +112,10 @@ func TestConsoleObjectPickingAndLuaSelection(t *testing.T) {
 		t.Fatalf("unexpected GetPickedSummary: active=%v id=%q name=%q", active, id, name)
 	}
 
-	// Mutate selected object directly from Lua console (`selected` global).
-	console.ExecuteCommand(`selected:SetPosition(9, 8, 7)`)
-	if cube.Transform.Position.X != 9 || cube.Transform.Position.Y != 8 || cube.Transform.Position.Z != 7 {
-		t.Fatalf("expected selected:SetPosition to mutate picked cube, got %+v", cube.Transform.Position)
+	// Mutate selected object Transform component directly from Lua console (`selected` global).
+	console.ExecuteCommand(`selected:GetComponent("Transform"):SetPosition(9, 8, 7)`)
+	if pos := cube.GetWorldTransform().Position; pos.X != 9 || pos.Y != 8 || pos.Z != 7 {
+		t.Fatalf("expected selected Transform SetPosition to mutate picked cube, got %+v", pos)
 	}
 
 	// list_objects() & unpick() & pick(name) from Lua.
@@ -139,12 +139,12 @@ func TestConsoleREPLSerializationJSONAndNil(t *testing.T) {
 	console := NewConsole(bridge)
 
 	cube := engine.NewGameObject("rainbow_cube", "RainbowCube")
-	cube.Transform.Position = engine.NewVector3(1.5, 2.5, -3.5)
+	cube.EnsureTransform().SetPosition(engine.NewVector3(1.5, 2.5, -3.5))
 	cube.AddComponent(engine.NewRenderable("cube_mesh", "rainbow_mat"))
 	bridge.RegisterGameObject("cube", cube)
 	console.PickObject(cube)
 
-	// 1. Bare expression `selected` returns indented JSON (not "OK" or "userdata: 0x...").
+	// 1. Bare expression `selected` returns indented JSON (not "OK" or "userdata: 0x...") and has no top-level `transform` field.
 	outSelected := console.ExecuteCommand("selected")
 	if outSelected == "OK" || strings.Contains(outSelected, "userdata:") {
 		t.Fatalf("expected serialized JSON for `selected`, got %q", outSelected)
@@ -158,6 +158,9 @@ func TestConsoleREPLSerializationJSONAndNil(t *testing.T) {
 	}
 	if decoded["id"] != "rainbow_cube" || decoded["name"] != "RainbowCube" {
 		t.Fatalf("unexpected decoded JSON payload: %+v", decoded)
+	}
+	if _, hasTopTransform := decoded["transform"]; hasTopTransform {
+		t.Fatalf("expected GameObject JSON not to include default top-level transform field")
 	}
 
 	// 2. print(selected) also prints pretty JSON lines cleanly.
@@ -181,7 +184,7 @@ func TestConsoleREPLSerializationJSONAndNil(t *testing.T) {
 	}
 
 	// 4. Explicit nil & void statements return/print "Nil" instead of "OK".
-	for _, expr := range []string{"nil", "return nil", "local _tmp = 42", "selected:SetPosition(4, 5, 6)"} {
+	for _, expr := range []string{"nil", "return nil", "local _tmp = 42", `selected:GetComponent("Transform"):SetPosition(4, 5, 6)`} {
 		console.ClearOutput()
 		res := console.ExecuteCommand(expr)
 		if res != "Nil" {

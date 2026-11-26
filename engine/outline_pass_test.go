@@ -61,12 +61,14 @@ func (m *mockOutlineGLAPI) Uniform1f(_ int32, v0 float32) {
 func TestOutlinePassStencilAndExtraction(t *testing.T) {
 	root := NewGameObject("root", "Root")
 	crate := NewGameObject("crate", "Crate")
+	crate.AddComponent(NewTransformComponent())
 	r := NewRenderable("crate_mesh", "wood")
 	r.SetOutlined(true)
 	r.SetOutlineColor(Color{R: 51, G: 230, B: 255, A: 255})
 	crate.AddComponent(r)
 
 	plain := NewGameObject("wall", "Wall")
+	plain.AddComponent(NewTransformComponent())
 	plain.AddComponent(NewRenderable("wall_mesh", "concrete"))
 
 	root.AddChild(crate)

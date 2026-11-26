@@ -531,7 +531,7 @@ func (w *PhysicsWorld) syncTransformsLocked() {
 	}
 	for _, c := range w.characters {
 		if c.character != nil && c.Owner != nil {
-			c.Owner.Transform.Position = c.getPositionNative()
+			c.Owner.EnsureTransform().SetPosition(c.getPositionNative())
 		}
 	}
 }
@@ -544,12 +544,13 @@ func syncBodyToGameObject(iface *C.JPH_BodyInterface, bodyID uint32, go_ *engine
 	C.JPH_Quat_GetEulerAngles(&rot, &eulerRad)
 
 	const rad2deg = 180.0 / math.Pi
-	go_.Transform.Position = engine.NewVector3(float32(pos.x), float32(pos.y), float32(pos.z))
-	go_.Transform.Rotation = engine.NewVector3(
+	tc := go_.EnsureTransform()
+	tc.SetPosition(engine.NewVector3(float32(pos.x), float32(pos.y), float32(pos.z)))
+	tc.SetRotation(engine.NewVector3(
 		float32(float64(eulerRad.x)*rad2deg),
 		float32(float64(eulerRad.y)*rad2deg),
 		float32(float64(eulerRad.z)*rad2deg),
-	)
+	))
 }
 
 func eulerDegToJoltQuat(deg engine.Vector3) C.JPH_Quat {

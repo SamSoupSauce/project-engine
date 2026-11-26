@@ -117,6 +117,15 @@ func EstimateGameObjectWorldBounds(obj *GameObject) BoundingBox {
 	}
 	wt := obj.GetWorldTransform()
 	half := NewVector3(0.5, 0.5, 0.5)
+	if mc := obj.GetMeshComponent(); mc != nil && mc.Asset != nil {
+		b := mc.Asset.Bounds
+		hx := (b.Max.X - b.Min.X) * 0.5
+		hy := (b.Max.Y - b.Min.Y) * 0.5
+		hz := (b.Max.Z - b.Min.Z) * 0.5
+		if hx > 0.01 && hy > 0.01 && hz > 0.01 {
+			half = NewVector3(hx, hy, hz)
+		}
+	}
 	if comp := obj.GetComponent(reflect.TypeOf((*Renderable)(nil))); comp != nil {
 		if r, ok := comp.(*Renderable); ok && r != nil && r.CustomSize != nil {
 			if r.CustomSize.X > 0 {
@@ -177,9 +186,9 @@ func PickSceneObject(scene *BaseScene, ray Ray, physicsWorld PhysicsWorldHandle)
 		if obj == nil || obj == scene.Root || !obj.Active {
 			continue
 		}
-		// Skip pure 2D screen-space HUD objects that have Renderable2D without 3D Renderable.
+		// Skip pure 2D screen-space HUD objects that have Renderable2D without 3D Renderable/Mesh.
 		has2D := obj.GetComponent(reflect.TypeOf((*Renderable2D)(nil))) != nil
-		has3D := obj.GetComponent(reflect.TypeOf((*Renderable)(nil))) != nil
+		has3D := obj.GetComponent(reflect.TypeOf((*Renderable)(nil))) != nil || obj.GetMeshRenderable() != nil || obj.GetMeshComponent() != nil
 		if has2D && !has3D {
 			continue
 		}

@@ -12,7 +12,6 @@ type GameObject struct {
 	ID         string
 	Name       string
 	Active     bool
-	Transform  Transform
 	Parent     *GameObject
 	Children   []*GameObject
 	Components []Component
@@ -22,18 +21,15 @@ type GameObject struct {
 	mu      sync.RWMutex
 }
 
-// NewGameObject initializes an active spatial entity with an attached TransformComponent.
+// NewGameObject initializes an empty spatial entity with zero default components.
 func NewGameObject(id, name string) *GameObject {
-	go_ := &GameObject{
+	return &GameObject{
 		ID:         id,
 		Name:       name,
 		Active:     true,
-		Transform:  NewTransform(),
 		Children:   make([]*GameObject, 0),
-		Components: make([]Component, 0, 2),
+		Components: make([]Component, 0),
 	}
-	go_.AddComponent(NewTransformComponent())
-	return go_
 }
 
 // AddChild links a child GameObject into this entity's hierarchy.
@@ -138,13 +134,20 @@ func (go_ *GameObject) RemoveComponent(targetType reflect.Type) bool {
 	return false
 }
 
-// GetWorldTransform evaluates the cascaded world-space transform from root to this entity.
+// GetWorldTransform evaluates the cascaded world-space transform from attached TransformComponents.
 func (go_ *GameObject) GetWorldTransform() Transform {
+	if go_ == nil {
+		return NewTransform()
+	}
+	local := NewTransform()
+	if tc := go_.GetTransformComponent(); tc != nil {
+		local = tc.Value()
+	}
 	if go_.Parent == nil {
-		return go_.Transform
+		return local
 	}
 	parentWorld := go_.Parent.GetWorldTransform()
-	return CombineTransforms(parentWorld, go_.Transform)
+	return CombineTransforms(parentWorld, local)
 }
 
 // Update propagates delta time across all attached components and active child nodes.

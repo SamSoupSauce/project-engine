@@ -20,7 +20,7 @@ func TestLuaHazardsFractureSweepKickAndHeavyCarryDamping(t *testing.T) {
 
 	// Heavy prop two-arm carry + camera rotational damping test via Interaction Controller.
 	desk := engine.NewGameObject("oak_desk", "Oak Desk")
-	desk.Transform.Position = engine.NewVector3(0, 1, -2)
+	desk.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -2))
 	deskRB := spatial.NewRigidBody("desk_rb", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.7, 0.5, 0.4))
 	desk.AddComponent(deskRB)
 	desk.AddComponent(spatial.NewInteractiveComponent("Oak Desk", true))

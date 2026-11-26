@@ -16,13 +16,13 @@ func TestBreakableSliderJointSpillsItemsAndAttachesArmSocket(t *testing.T) {
 	scene := engine.NewBaseScene("drawer_test")
 
 	cabinet := engine.NewGameObject("nightstand", "Nightstand")
-	cabinet.Transform.Position = engine.NewVector3(0, 1, -2)
+	cabinet.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -2))
 	cabinetRB := NewRigidBody("nightstand_body", world, engine.BodyStatic, BoxShapeDesc(0.5, 0.6, 0.4))
 	cabinet.AddComponent(cabinetRB)
 	scene.AddObject(cabinet)
 
 	drawer := engine.NewGameObject("drawer", "Nightstand Drawer")
-	drawer.Transform.Position = engine.NewVector3(0, 1, -1.6)
+	drawer.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -1.6))
 	drawerRB := NewRigidBody("drawer_body", world, engine.BodyDynamic, BoxShapeDesc(0.35, 0.12, 0.3))
 	drawerRB.Mass = 1.5
 	drawer.AddComponent(drawerRB)
@@ -31,7 +31,7 @@ func TestBreakableSliderJointSpillsItemsAndAttachesArmSocket(t *testing.T) {
 
 	// Loose items resting inside the drawer.
 	watch := engine.NewGameObject("watch", "Pocket Watch")
-	watch.Transform.Position = engine.NewVector3(0, 1.05, -1.6)
+	watch.EnsureTransform().SetPosition(engine.NewVector3(0, 1.05, -1.6))
 	watchRB := NewRigidBody("watch_body", world, engine.BodyDynamic, SphereShapeDesc(0.08))
 	watchRB.Mass = 0.2
 	watch.AddComponent(watchRB)
@@ -95,7 +95,7 @@ func TestBreakableHingeJointTorqueSnap(t *testing.T) {
 	frameObj.AddComponent(frameRB)
 
 	doorObj := engine.NewGameObject("cabinet_door", "Cabinet Door")
-	doorObj.Transform.Position = engine.NewVector3(0.5, 0, 0)
+	doorObj.EnsureTransform().SetPosition(engine.NewVector3(0.5, 0, 0))
 	doorRB := NewRigidBody("cabinet_door_rb", world, engine.BodyDynamic, BoxShapeDesc(0.4, 0.9, 0.08))
 	doorRB.Mass = 3.0
 	doorObj.AddComponent(doorRB)
@@ -135,7 +135,7 @@ func TestFractureLowVsHeavyIntegrityStrikesAndMatchwood(t *testing.T) {
 
 	// Enemy body target.
 	enemy := engine.NewGameObject("zombie", "Zombie")
-	enemy.Transform.Position = engine.NewVector3(0, 1, -3)
+	enemy.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -3))
 	enemyRB := NewRigidBody("zombie_rb", world, engine.BodyDynamic, CapsuleShapeDesc(0.6, 0.3))
 	enemyRB.Mass = 70.0
 	enemyRB.GravityFactor = 0
@@ -144,7 +144,7 @@ func TestFractureLowVsHeavyIntegrityStrikesAndMatchwood(t *testing.T) {
 
 	// 1. Flimsy wooden drawer striking zombie obliterates into matchwood splinters (~0.075 kg).
 	drawer := engine.NewGameObject("flimsy_drawer", "Wooden Drawer")
-	drawer.Transform.Position = engine.NewVector3(0, 1, -2)
+	drawer.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -2))
 	drawerRB := NewRigidBody("flimsy_drawer_rb", world, engine.BodyDynamic, BoxShapeDesc(0.3, 0.1, 0.25))
 	drawerRB.Mass = 1.0
 	drawer.AddComponent(drawerRB)
@@ -173,7 +173,7 @@ func TestFractureLowVsHeavyIntegrityStrikesAndMatchwood(t *testing.T) {
 
 	// 2. Heavy nightstand enforces 2-arm carry, heavy look damping, and knocks down enemy without breaking.
 	nightstand := engine.NewGameObject("heavy_nightstand", "Oak Nightstand")
-	nightstand.Transform.Position = engine.NewVector3(2, 1, -2)
+	nightstand.EnsureTransform().SetPosition(engine.NewVector3(2, 1, -2))
 	nsRB := NewRigidBody("heavy_ns_rb", world, engine.BodyDynamic, BoxShapeDesc(0.5, 0.6, 0.4))
 	nsRB.Mass = 32.0
 	nightstand.AddComponent(nsRB)

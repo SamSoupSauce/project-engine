@@ -25,7 +25,8 @@ function hero_sprite_render(self, gfx)
 	rendered = rendered + 1
 	local w, h = gfx:GetViewportSize()
 	last_viewport = string.format("%.0fx%.0f", w, h)
-	local pos = self:GetPosition()
+	local tx, ty, tz = self:GetComponent("Transform"):GetPosition()
+	local pos = { x = tx, y = ty, z = tz }
 	gfx:DrawRect(pos.x, pos.y, 40, 20, 255, 128, 0, 255, 3)
 	gfx:DrawQuad(0, 0, 16, 16, 42, 0, 0, 0.5, 0.5, 255, 255, 255, 255, 1)
 	gfx:DrawMesh("hero_mesh", "pbr", pos.x, pos.y, pos.z, 200, 210, 220, 255)
@@ -62,16 +63,19 @@ end
 	scene.SetViewportSize(1280, 720)
 
 	hero := engine.NewGameObject("hero_1", "Hero")
-	hero.Transform.Position = engine.NewVector3(12, 34, 56)
 	heroScript, err := bridge.NewScriptComponent(heroPath)
 	if err != nil {
 		t.Fatalf("failed loading hero script: %v", err)
 	}
+	heroTr := engine.NewTransformComponent()
+	heroTr.SetPosition(engine.NewVector3(12, 34, 56))
+	hero.AddComponent(heroTr)
 	hero.AddComponent(engine.NewRenderable("base_cube", "default"))
 	hero.AddComponent(heroScript)
 	scene.AddObject(hero)
 
 	boss := engine.NewGameObject("boss_1", "Boss")
+	boss.AddComponent(engine.NewTransformComponent())
 	bossRenderable := engine.NewRenderable("boss_mesh", "lit")
 	bossRenderable.ScriptName = "BossOverlay"
 	bossScript, err := bridge.NewScriptComponent(bossPath)
@@ -83,6 +87,7 @@ end
 	scene.AddObject(boss)
 
 	minionA := engine.NewGameObject("m_a", "MinionA")
+	minionA.AddComponent(engine.NewTransformComponent())
 	minionAScript, err := bridge.NewScriptComponent(minionPath)
 	if err != nil {
 		t.Fatalf("failed loading minionA script: %v", err)
@@ -91,6 +96,7 @@ end
 	minionA.AddComponent(minionAScript)
 
 	minionB := engine.NewGameObject("m_b", "MinionB")
+	minionB.AddComponent(engine.NewTransformComponent())
 	minionBScript, err := bridge.NewScriptComponent(minionPath)
 	if err != nil {
 		t.Fatalf("failed loading minionB script: %v", err)
@@ -212,6 +218,7 @@ function render(self, gfx) called = called + 1 end
 	if err != nil {
 		t.Fatalf("failed loading empty_rend.lua: %v", err)
 	}
+	emptyObj.AddComponent(engine.NewTransformComponent())
 	emptyObj.AddComponent(engine.NewRenderable("box", "default"))
 	emptyObj.AddComponent(emptySC)
 	scene.AddObject(emptyObj)
@@ -224,6 +231,7 @@ function render(self, gfx) called = called + 1 end
 	}
 	globalRend := engine.NewRenderable("quad", "ui")
 	globalRend.ScriptName = "GlobalWidget"
+	globalObj.AddComponent(engine.NewTransformComponent())
 	globalObj.AddComponent(globalRend)
 	globalObj.AddComponent(globalSC)
 	scene.AddObject(globalObj)
@@ -239,6 +247,7 @@ end
 	if err != nil {
 		t.Fatalf("failed loading broken.lua: %v", err)
 	}
+	errObj.AddComponent(engine.NewTransformComponent())
 	errObj.AddComponent(engine.NewRenderable("box", "default"))
 	errObj.AddComponent(errSC)
 	scene.AddObject(errObj)

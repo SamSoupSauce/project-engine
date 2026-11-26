@@ -14,6 +14,7 @@ func TestHelpIntrospectionOnSelectedObjectAndComponents(t *testing.T) {
 	console := NewConsole(bridge)
 
 	cube := engine.NewGameObject("cube_01", "RainbowCube")
+	cube.AddComponent(engine.NewTransformComponent())
 	cube.AddComponent(engine.NewRenderable("cube_mesh", "rainbow_mat"))
 	cube.AddComponent(spatial.NewInteractiveComponent("RainbowCube", true))
 	bridge.RegisterGameObject("cube", cube)
@@ -25,7 +26,6 @@ func TestHelpIntrospectionOnSelectedObjectAndComponents(t *testing.T) {
 		"GameObject Help: RainbowCube (cube_01)",
 		"GetComponent",
 		"AddComponent",
-		"SetPosition",
 		"Components (3):",
 		"Transform (*engine.TransformComponent)",
 		"Renderable (*engine.Renderable)",
@@ -34,6 +34,9 @@ func TestHelpIntrospectionOnSelectedObjectAndComponents(t *testing.T) {
 		if !strings.Contains(objHelp, want) {
 			t.Fatalf("expected help(selected) output to contain %q, got:\n%s", want, objHelp)
 		}
+	}
+	if strings.Contains(objHelp, "Properties: id, name, active, scene, position") {
+		t.Fatalf("expected GameObject Properties not to list default transform/position fields:\n%s", objHelp)
 	}
 
 	// 2. CLI command form `help selected` also works.
@@ -78,18 +81,19 @@ func TestLuaGenericComponentAccessAndRenderableConstraint(t *testing.T) {
 	bridge.RegisterGameObject("prop", obj)
 	console.PickObject(obj)
 
-	// 1. Access default Transform component from Lua and mutate 3D location.
+	// 1. Under Strict ECS, GameObjects start with zero components; attach Transform explicitly from Lua.
 	hasTr := console.ExecuteCommand(`return selected:HasComponent("Transform")`)
-	if hasTr != "true" {
-		t.Fatalf("expected HasComponent('Transform') == true, got %q", hasTr)
+	if hasTr != "false" {
+		t.Fatalf("expected new GameObject HasComponent('Transform') == false, got %q", hasTr)
 	}
 	console.ExecuteCommand(`
-		local tc = selected:GetComponent("Transform")
+		local tc = selected:AddComponent("Transform")
 		tc:SetPosition(11, 22, 33)
 		tc.x = 15
 	`)
-	if obj.Transform.Position.X != 15 || obj.Transform.Position.Y != 22 || obj.Transform.Position.Z != 33 {
-		t.Fatalf("expected Transform Lua mutation synced to GameObject, got %+v", obj.Transform.Position)
+	pos := obj.GetWorldTransform().Position
+	if pos.X != 15 || pos.Y != 22 || pos.Z != 33 {
+		t.Fatalf("expected Transform Lua mutation synced to GameObject, got %+v", pos)
 	}
 
 	// 2. Add Renderable from Lua (passes Transform constraint) and enumerate via GetComponents().
@@ -103,7 +107,19 @@ func TestLuaGenericComponentAccessAndRenderableConstraint(t *testing.T) {
 		t.Fatalf("expected 2 components in GetComponents(), got %q", count)
 	}
 
-	// 3. Removing Transform violates Renderable constraint and blocks adding another Renderable.
+	// 3. MeshRenderable enforces both Transform and MeshComponent constraints; Mesh & MeshRenderable help work.
+	meshErr := console.ExecuteCommand(`selected:AddComponent("MeshRenderable")`)
+	if !strings.Contains(meshErr, "Error:") {
+		t.Fatalf("expected AddComponent('MeshRenderable') error without MeshComponent, got %q", meshErr)
+	}
+	meshHelp := console.ExecuteCommand(`help("Mesh")`)
+	meshRendHelp := console.ExecuteCommand(`help("MeshRenderable")`)
+	if !strings.Contains(meshHelp, "Component Help: Mesh (*engine.MeshComponent)") ||
+		!strings.Contains(meshRendHelp, "Component Help: MeshRenderable (*engine.MeshRenderable)") {
+		t.Fatalf("expected help output for Mesh & MeshRenderable, got:\n%s\n%s", meshHelp, meshRendHelp)
+	}
+
+	// 4. Removing Transform violates Renderable constraint and blocks adding another Renderable.
 	console.ExecuteCommand(`selected:RemoveComponent("Renderable"); selected:RemoveComponent("Transform")`)
 	errOut := console.ExecuteCommand(`selected:AddComponent("Renderable", "mesh", "mat")`)
 	if !strings.Contains(errOut, "Error:") || !strings.Contains(errOut, "Transform") {

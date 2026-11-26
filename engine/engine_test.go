@@ -26,11 +26,12 @@ func (m *mockComponent) Destroy() {
 
 func TestGameObjectHierarchyAndTransforms(t *testing.T) {
 	parent := NewGameObject("parent", "ParentNode")
-	parent.Transform.Position = NewVector3(10, 0, 0)
-	parent.Transform.Scale = NewVector3(2, 2, 2)
+	parentTC := parent.EnsureTransform()
+	parentTC.SetPosition(NewVector3(10, 0, 0))
+	parentTC.SetScale(NewVector3(2, 2, 2))
 
 	child := NewGameObject("child", "ChildNode")
-	child.Transform.Position = NewVector3(5, 0, 0)
+	child.EnsureTransform().SetPosition(NewVector3(5, 0, 0))
 	parent.AddChild(child)
 
 	if child.Parent != parent {
@@ -69,17 +70,20 @@ func TestGameObjectHierarchyAndTransforms(t *testing.T) {
 
 func TestRenderableCascadeEvaluation(t *testing.T) {
 	root := NewGameObject("root", "Root")
+	root.AddComponent(NewTransformComponent())
 	rootRenderable := NewRenderable("mesh_root", "mat_root")
 	rootRenderable.Flags = FlagVisible | FlagCastShadow
 	root.AddComponent(rootRenderable)
 
 	childA := NewGameObject("child_a", "ChildA")
+	childA.AddComponent(NewTransformComponent())
 	childARenderable := NewRenderable("mesh_child_a", "mat_child_a")
 	childARenderable.Flags = FlagVisible | FlagWireframe
 	childA.AddComponent(childARenderable)
 	root.AddChild(childA)
 
 	childB := NewGameObject("child_b", "ChildB")
+	childB.AddComponent(NewTransformComponent())
 	childBRenderable := NewRenderable("mesh_child_b", "mat_child_b")
 	// childB overrides parent and sets itself invisible
 	childBRenderable.Flags = FlagOverrideParent // FlagVisible not set

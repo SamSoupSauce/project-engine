@@ -160,7 +160,7 @@ func (hs *HazardSystem) SpawnShard(floorPos engine.Vector3, radius, sharpness fl
 	hs.shardSeq++
 	id := fmt.Sprintf("hazard_shard_%d", hs.shardSeq)
 	obj := engine.NewGameObject(id, HazardShardTag)
-	obj.Transform.Position = floorPos
+	obj.EnsureTransform().SetPosition(floorPos)
 	obj.AddComponent(engine.NewRenderable("shard_cluster_mesh", "ceramic_shard"))
 
 	half := engine.NewVector3(radius*0.8, 0.025, radius*0.8)
@@ -331,7 +331,7 @@ func (hs *HazardSystem) OnSweep(origin, dir engine.Vector3, reach, pushImpulse f
 			pos.Z+nDir.Z*reach*1.25,
 		)
 		if shard.Owner != nil {
-			shard.Owner.Transform.Position = shard.Position
+			shard.Owner.EnsureTransform().SetPosition(shard.Position)
 		}
 		if shard.Body != nil {
 			shard.Body.AddImpulse(engine.NewVector3(nDir.X*pushImpulse, 0.4, nDir.Z*pushImpulse))
@@ -390,7 +390,7 @@ func (hs *HazardSystem) Kick(origin, dir engine.Vector3, reach, impulse float32)
 			pos.Z+nDir.Z*1.5,
 		)
 		if shard.Owner != nil {
-			shard.Owner.Transform.Position = shard.Position
+			shard.Owner.EnsureTransform().SetPosition(shard.Position)
 		}
 		if shard.Body != nil {
 			shard.Body.AddImpulse(engine.NewVector3(nDir.X*impulse, 1.2, nDir.Z*impulse))
@@ -455,7 +455,7 @@ func (s *HazardShard) currentPosition() engine.Vector3 {
 		return s.Body.GetPosition()
 	}
 	if s.Owner != nil {
-		return s.Owner.Transform.Position
+		return s.Owner.GetWorldTransform().Position
 	}
 	return s.Position
 }

@@ -103,8 +103,10 @@ func NewRigidBody(id string, world *PhysicsWorld, bodyType engine.PhysicsBodyTyp
 func (rb *RigidBody) Init(owner *engine.GameObject) {
 	rb.Owner = owner
 	if owner != nil {
-		rb.initialPos = owner.Transform.Position
-		rb.initialRot = owner.Transform.Rotation
+		if tc := owner.GetTransformComponent(); tc != nil {
+			rb.initialPos = tc.GetPosition()
+			rb.initialRot = tc.GetRotation()
+		}
 	}
 	if rb.World != nil && rb.BodyID == InvalidBodyID {
 		rb.AttachToWorld(rb.World)
@@ -161,8 +163,10 @@ func (rb *RigidBody) AttachToWorld(world *PhysicsWorld) {
 	pos := rb.initialPos
 	rotDeg := rb.initialRot
 	if rb.Owner != nil {
-		pos = rb.Owner.Transform.Position
-		rotDeg = rb.Owner.Transform.Rotation
+		if tc := rb.Owner.GetTransformComponent(); tc != nil {
+			pos = tc.GetPosition()
+			rotDeg = tc.GetRotation()
+		}
 	}
 
 	jPos := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}
@@ -355,7 +359,7 @@ func (rb *RigidBody) GetPosition() engine.Vector3 {
 func (rb *RigidBody) SetPosition(pos engine.Vector3) {
 	rb.initialPos = pos
 	if rb.Owner != nil {
-		rb.Owner.Transform.Position = pos
+		rb.Owner.EnsureTransform().SetPosition(pos)
 	}
 	if rb.World == nil || rb.BodyID == InvalidBodyID {
 		return
@@ -397,7 +401,7 @@ func (rb *RigidBody) GetRotation() engine.Vector3 {
 func (rb *RigidBody) SetRotation(rot engine.Vector3) {
 	rb.initialRot = rot
 	if rb.Owner != nil {
-		rb.Owner.Transform.Rotation = rot
+		rb.Owner.EnsureTransform().SetRotation(rot)
 	}
 	if rb.World == nil || rb.BodyID == InvalidBodyID {
 		return
@@ -590,7 +594,9 @@ func NewCharacterController(world *PhysicsWorld, cfg CharacterConfig) *Character
 func (cc *CharacterController) Init(owner *engine.GameObject) {
 	cc.Owner = owner
 	if owner != nil {
-		cc.initialPos = owner.Transform.Position
+		if tc := owner.GetTransformComponent(); tc != nil {
+			cc.initialPos = tc.GetPosition()
+		}
 	}
 	if cc.World != nil && cc.character == nil {
 		cc.AttachToWorld(cc.World)
@@ -673,7 +679,9 @@ func (cc *CharacterController) AttachToWorld(world *PhysicsWorld) {
 
 	pos := cc.initialPos
 	if cc.Owner != nil {
-		pos = cc.Owner.Transform.Position
+		if tc := cc.Owner.GetTransformComponent(); tc != nil {
+			pos = tc.GetPosition()
+		}
 	}
 	jPos := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}
 	jRot := C.JPH_Quat{x: 0, y: 0, z: 0, w: 1}
@@ -709,7 +717,7 @@ func (cc *CharacterController) Jump(speed float32) {
 func (cc *CharacterController) SetPosition(pos engine.Vector3) {
 	cc.initialPos = pos
 	if cc.Owner != nil {
-		cc.Owner.Transform.Position = pos
+		cc.Owner.EnsureTransform().SetPosition(pos)
 	}
 	if cc.character != nil {
 		jp := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}

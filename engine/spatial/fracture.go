@@ -239,8 +239,9 @@ func (fc *FractureComponent) ApplyImpact(impulse float32, point, normal engine.V
 		// Metal props dent/flatten visually and absorb the blow unless obliterated twice below -MaxHealth.
 		fc.DeformCount++
 		if fc.Owner != nil {
-			fc.Owner.Transform.Scale.Y *= 0.82
-			fc.Owner.Transform.Scale.X *= 1.08
+			tc := fc.Owner.EnsureTransform()
+			sc := tc.GetScale()
+			tc.SetScale(engine.NewVector3(sc.X*1.08, sc.Y*0.82, sc.Z))
 		}
 		fc.Health = fc.MaxHealth * 0.5
 		if fc.DeformCount < 3 {
@@ -386,12 +387,13 @@ func (fc *FractureComponent) Fracture(point, normal engine.Vector3, impulse floa
 			fragID = fmt.Sprintf("%s_debris_%d", fc.Owner.ID, fc.debrisSeq)
 		}
 		frag := engine.NewGameObject(fragID, fragID)
-		frag.Transform.Position = engine.NewVector3(
+		fragTC := frag.EnsureTransform()
+		fragTC.SetPosition(engine.NewVector3(
 			pos.X+dx*0.18,
 			pos.Y+0.06+float32(i%2)*0.05,
 			pos.Z+dz*0.18,
-		)
-		frag.Transform.Rotation = engine.NewVector3(0, float32(i*37%360), 0)
+		))
+		fragTC.SetRotation(engine.NewVector3(0, float32(i*37%360), 0))
 		frag.Active = true
 
 		if prefab.MeshID != "" {
@@ -447,14 +449,14 @@ func (fc *FractureComponent) propPosition() engine.Vector3 {
 		return fc.body.GetPosition()
 	}
 	if fc.Owner != nil {
-		return fc.Owner.Transform.Position
+		return fc.Owner.GetWorldTransform().Position
 	}
 	return engine.Vector3{}
 }
 
 func (fc *FractureComponent) OwnerTransformScale() engine.Vector3 {
 	if fc.Owner != nil {
-		return fc.Owner.Transform.Scale
+		return fc.Owner.GetWorldTransform().Scale
 	}
 	return engine.NewVector3(1, 1, 1)
 }

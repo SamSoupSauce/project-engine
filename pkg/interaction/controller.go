@@ -457,7 +457,7 @@ func (c *Controller) executeOption(target *engine.GameObject, opt spatial.Intera
 	if opt.Verb == spatial.VerbGrab && target != nil && c.World != nil {
 		// Support grabbing via explicit context menu option too.
 		err := c.GrabEntity(target, CameraPose{
-			Origin:  target.Transform.Position,
+			Origin:  target.GetWorldTransform().Position,
 			Forward: engine.NewVector3(0, 0, 1),
 		})
 		return InteractionResult{

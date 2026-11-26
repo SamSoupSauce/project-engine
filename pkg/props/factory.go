@@ -202,7 +202,7 @@ func (r *PropRegistry) SpawnProp(propID string, pos engine.Vector3) (string, err
 		return "", fmt.Errorf("props: unknown prop manifest %q", propID)
 	}
 	obj := r.CreateEntity(propID)
-	obj.Transform.Position = pos
+	obj.EnsureTransform().SetPosition(pos)
 	r.EntityManifests[obj.ID] = propID
 
 	if fn, ok := m.Table.RawGetString("on_spawn").(*lua.LFunction); ok && fn != nil {
@@ -333,11 +333,11 @@ func (r *PropRegistry) registerLuaBindings() {
 			ang := float64(i) * (2.0 * math.Pi / float64(count))
 			id := fmt.Sprintf("splinter_%d", r.debrisSeq)
 			frag := engine.NewGameObject(id, id)
-			frag.Transform.Position = engine.NewVector3(
+			frag.EnsureTransform().SetPosition(engine.NewVector3(
 				origin.X+float32(math.Cos(ang))*0.15,
 				origin.Y+0.05,
 				origin.Z+float32(math.Sin(ang))*0.15,
-			)
+			))
 			frag.AddComponent(engine.NewRenderable("splinter_mesh", material))
 			if r.World != nil {
 				rb := spatial.NewRigidBody(id+"_rb", r.World, engine.BodyDynamic, spatial.BoxShapeDesc(0.06, 0.015, 0.02))

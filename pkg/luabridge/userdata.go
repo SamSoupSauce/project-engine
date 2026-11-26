@@ -59,14 +59,6 @@ func (b *LuaBridge) registerGameObjectType() {
 			L.Push(lua.LBool(obj.Active))
 		case "scene", "Scene":
 			pushScene(L, obj.GetScene())
-		case "position", "Position":
-			L.Push(vec3ToTable(L, obj.Transform.Position))
-		case "rotation", "Rotation":
-			L.Push(vec3ToTable(L, obj.Transform.Rotation))
-		case "scale", "Scale":
-			L.Push(vec3ToTable(L, obj.Transform.Scale))
-		case "transform", "Transform":
-			L.Push(transformToTable(L, obj.Transform))
 		default:
 			L.Push(lua.LNil)
 		}
@@ -82,12 +74,6 @@ func (b *LuaBridge) registerGameObjectType() {
 			obj.Name = L.CheckString(3)
 		case "active", "Active":
 			obj.Active = L.CheckBool(3)
-		case "position", "Position":
-			obj.Transform.Position = tableToVec3(L, L.CheckTable(3))
-		case "rotation", "Rotation":
-			obj.Transform.Rotation = tableToVec3(L, L.CheckTable(3))
-		case "scale", "Scale":
-			obj.Transform.Scale = tableToVec3(L, L.CheckTable(3))
 		default:
 			L.RaiseError("GameObject has no writable property %q", key)
 		}
@@ -140,41 +126,6 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			obj := checkGameObject(L, 1)
 			obj.Active = L.CheckBool(2)
 			return 0
-		},
-		"GetPosition": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Position))
-			return 1
-		},
-		"SetPosition": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Position = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetRotation": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Rotation))
-			return 1
-		},
-		"SetRotation": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Rotation = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetScale": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Scale))
-			return 1
-		},
-		"SetScale": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Scale = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetTransform": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(transformToTable(L, obj.Transform))
-			return 1
 		},
 		"GetWorldTransform": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
@@ -330,6 +281,26 @@ func gameObjectMethods() map[string]lua.LGFunction {
 				}
 				obj.AddComponent(tc)
 				pushTransformComponent(L, tc)
+				return 1
+			case "Mesh":
+				path := L.OptString(3, "")
+				mc := engine.NewMeshComponent(path)
+				if mc.LoadErr != nil {
+					L.RaiseError("Mesh failed to load %q: %v", path, mc.LoadErr)
+				}
+				obj.AddComponent(mc)
+				pushMeshComponent(L, mc)
+				return 1
+			case "MeshRenderable":
+				if obj.GetTransformComponent() == nil {
+					L.RaiseError("MeshRenderable requires an attached Transform component on GameObject %q", obj.ID)
+				}
+				if obj.GetMeshComponent() == nil || obj.GetMeshComponent().Asset == nil {
+					L.RaiseError("MeshRenderable requires an attached loaded Mesh component on GameObject %q", obj.ID)
+				}
+				mr := engine.NewMeshRenderable()
+				obj.AddComponent(mr)
+				pushMeshRenderable(L, mr)
 				return 1
 			case "Renderable":
 				if obj.GetTransformComponent() == nil {

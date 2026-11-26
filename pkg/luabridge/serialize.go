@@ -36,11 +36,10 @@ type gameObjectJSON struct {
 	Spawned    bool                   `json:"spawned"`
 	ParentID   string                 `json:"parent_id,omitempty"`
 	Children   []string               `json:"children,omitempty"`
-	Transform  transformJSON          `json:"transform"`
 	Components []componentSummaryJSON `json:"components"`
 }
 
-// SerializeGameObjectJSON formats an engine.GameObject (transform, hierarchy, components) as indented JSON.
+// SerializeGameObjectJSON formats an engine.GameObject (identity, hierarchy, components) as indented JSON.
 func SerializeGameObjectJSON(obj *engine.GameObject) string {
 	if obj == nil {
 		return "null"
@@ -75,6 +74,18 @@ func SerializeGameObjectJSON(obj *engine.GameObject) string {
 				"position": vec3JSON{X: p.X, Y: p.Y, Z: p.Z},
 				"rotation": vec3JSON{X: r.X, Y: r.Y, Z: r.Z},
 				"scale":    vec3JSON{X: s.X, Y: s.Y, Z: s.Z},
+			}
+		case *engine.MeshComponent:
+			summary.Details = map[string]any{
+				"file_path": typed.FilePath,
+				"triangles": typed.TriangleCount(),
+				"loaded":    typed.Asset != nil,
+			}
+		case *engine.MeshRenderable:
+			summary.Details = map[string]any{
+				"visible":   typed.Visible,
+				"wireframe": typed.Wireframe,
+				"valid":     typed.ValidateConstraint() == nil,
 			}
 		case *engine.Renderable:
 			summary.Details = map[string]any{
@@ -118,17 +129,12 @@ func SerializeGameObjectJSON(obj *engine.GameObject) string {
 	}
 
 	payload := gameObjectJSON{
-		ID:       obj.ID,
-		Name:     obj.Name,
-		Active:   obj.Active,
-		Spawned:  obj.IsSpawned(),
-		ParentID: parentID,
-		Children: children,
-		Transform: transformJSON{
-			Position: vec3JSON{X: obj.Transform.Position.X, Y: obj.Transform.Position.Y, Z: obj.Transform.Position.Z},
-			Rotation: vec3JSON{X: obj.Transform.Rotation.X, Y: obj.Transform.Rotation.Y, Z: obj.Transform.Rotation.Z},
-			Scale:    vec3JSON{X: obj.Transform.Scale.X, Y: obj.Transform.Scale.Y, Z: obj.Transform.Scale.Z},
-		},
+		ID:         obj.ID,
+		Name:       obj.Name,
+		Active:     obj.Active,
+		Spawned:    obj.IsSpawned(),
+		ParentID:   parentID,
+		Children:   children,
 		Components: comps,
 	}
 
@@ -173,6 +179,11 @@ func serializeUserData(L *lua.LState, ud *lua.LUserData) string {
 		p, r, s := obj.GetPosition(), obj.GetRotation(), obj.GetScale()
 		return fmt.Sprintf("Transform{pos=(%.2f, %.2f, %.2f), rot=(%.2f, %.2f, %.2f), scale=(%.2f, %.2f, %.2f)}",
 			p.X, p.Y, p.Z, r.X, r.Y, r.Z, s.X, s.Y, s.Z)
+	case *engine.MeshComponent:
+		return fmt.Sprintf("Mesh{path=%q, tris=%d, loaded=%v}", obj.FilePath, obj.TriangleCount(), obj.Asset != nil)
+	case *engine.MeshRenderable:
+		return fmt.Sprintf("MeshRenderable{visible=%v, wireframe=%v, valid=%v}",
+			obj.Visible, obj.Wireframe, obj.ValidateConstraint() == nil)
 	case *engine.Renderable:
 		return fmt.Sprintf("Renderable{mesh=%q, material=%q, visible=%v, outlined=%v, flags=0x%X}",
 			obj.MeshID, obj.MaterialID, obj.IsVisible(), obj.IsOutlined(), uint32(obj.Flags))

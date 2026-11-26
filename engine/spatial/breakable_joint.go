@@ -368,7 +368,7 @@ func (j *BreakableJoint) breakLocked(pullDir engine.Vector3, force, torque float
 			j.ChildBody.Owner.Parent == j.ParentBody.Owner {
 			worldT := j.ChildBody.Owner.GetWorldTransform()
 			j.ParentBody.Owner.RemoveChild(j.ChildBody.Owner)
-			j.ChildBody.Owner.Transform = worldT
+			j.ChildBody.Owner.EnsureTransform().Transform = worldT
 		}
 	}
 
@@ -385,7 +385,7 @@ func (j *BreakableJoint) breakLocked(pullDir engine.Vector3, force, torque float
 		if item.Owner != nil && j.ChildBody != nil && j.ChildBody.Owner != nil && item.Owner.Parent == j.ChildBody.Owner {
 			worldT := item.Owner.GetWorldTransform()
 			j.ChildBody.Owner.RemoveChild(item.Owner)
-			item.Owner.Transform = worldT
+			item.Owner.EnsureTransform().Transform = worldT
 		}
 		item.BodyType = engine.BodyDynamic
 		C.JPH_BodyInterface_SetMotionType(

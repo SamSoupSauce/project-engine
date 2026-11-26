@@ -12,12 +12,16 @@ import (
 
 const (
 	luaTransformTypeName       = "Transform"
+	luaMeshTypeName            = "Mesh"
+	luaMeshRenderableTypeName  = "MeshRenderable"
 	luaRigidBodyTypeName       = "RigidBody"
 	luaScriptComponentTypeName = "ScriptComponent"
 )
 
 func (b *LuaBridge) registerComponentTypes() {
 	b.registerTransformComponentType()
+	b.registerMeshComponentType()
+	b.registerMeshRenderableType()
 	b.registerRigidBodyType()
 	b.registerScriptComponentType()
 }
@@ -309,6 +313,10 @@ func resolveComponentAlias(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "transform", "transformcomponent", "*engine.transformcomponent":
 		return "Transform"
+	case "mesh", "meshcomponent", "*engine.meshcomponent":
+		return "Mesh"
+	case "meshrenderable", "mesh_renderable", "*engine.meshrenderable":
+		return "MeshRenderable"
 	case "renderable", "*engine.renderable":
 		return "Renderable"
 	case "renderable2d", "*engine.renderable2d":
@@ -330,6 +338,10 @@ func componentReflectType(name string) reflect.Type {
 	switch resolveComponentAlias(name) {
 	case "Transform":
 		return reflect.TypeOf((*engine.TransformComponent)(nil))
+	case "Mesh":
+		return reflect.TypeOf((*engine.MeshComponent)(nil))
+	case "MeshRenderable":
+		return reflect.TypeOf((*engine.MeshRenderable)(nil))
 	case "Renderable":
 		return reflect.TypeOf((*engine.Renderable)(nil))
 	case "Renderable2D":
@@ -351,6 +363,10 @@ func componentCanonicalName(comp engine.Component) string {
 	switch comp.(type) {
 	case *engine.TransformComponent:
 		return "Transform"
+	case *engine.MeshComponent:
+		return "Mesh"
+	case *engine.MeshRenderable:
+		return "MeshRenderable"
 	case *engine.Renderable:
 		return "Renderable"
 	case *engine.Renderable2D:
@@ -372,6 +388,12 @@ func pushEngineComponent(L *lua.LState, comp engine.Component) bool {
 	switch c := comp.(type) {
 	case *engine.TransformComponent:
 		pushTransformComponent(L, c)
+		return true
+	case *engine.MeshComponent:
+		pushMeshComponent(L, c)
+		return true
+	case *engine.MeshRenderable:
+		pushMeshRenderable(L, c)
 		return true
 	case *engine.Renderable:
 		pushRenderable(L, c)
@@ -395,6 +417,180 @@ func pushEngineComponent(L *lua.LState, comp engine.Component) bool {
 		L.Push(lua.LNil)
 		return false
 	}
+}
+
+func (b *LuaBridge) registerMeshComponentType() {
+	mt := b.L.NewTypeMetatable(luaMeshTypeName)
+	methods := b.L.NewTable()
+	b.L.SetField(methods, "Load", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		if err := mc.Load(L.CheckString(2)); err != nil {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString(err.Error()))
+			return 2
+		}
+		L.Push(lua.LTrue)
+		L.Push(lua.LNil)
+		return 2
+	}))
+	b.L.SetField(methods, "GetPath", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		L.Push(lua.LString(mc.FilePath))
+		return 1
+	}))
+	b.L.SetField(methods, "GetTriangleCount", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		L.Push(lua.LNumber(mc.TriangleCount()))
+		return 1
+	}))
+	b.L.SetField(methods, "GetBounds", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		bounds := mc.Bounds()
+		tbl := L.NewTable()
+		L.SetField(tbl, "min", vec3ToTable(L, bounds.Min))
+		L.SetField(tbl, "max", vec3ToTable(L, bounds.Max))
+		L.Push(tbl)
+		return 1
+	}))
+
+	b.L.SetField(mt, "__index", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		key := L.CheckString(2)
+		if fn := L.GetField(methods, key); fn != lua.LNil {
+			L.Push(fn)
+			return 1
+		}
+		switch key {
+		case "file_path", "FilePath":
+			L.Push(lua.LString(mc.FilePath))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
+		mc := checkMeshComponent(L, 1)
+		L.Push(lua.LString(fmt.Sprintf("Mesh{path=%q, tris=%d}", mc.FilePath, mc.TriangleCount())))
+		return 1
+	}))
+}
+
+func (b *LuaBridge) registerMeshRenderableType() {
+	mt := b.L.NewTypeMetatable(luaMeshRenderableTypeName)
+	methods := b.L.NewTable()
+	b.L.SetField(methods, "SetVisible", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		mr.Visible = L.CheckBool(2)
+		return 0
+	}))
+	b.L.SetField(methods, "IsVisible", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		L.Push(lua.LBool(mr.Visible))
+		return 1
+	}))
+	b.L.SetField(methods, "SetWireframe", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		mr.Wireframe = L.CheckBool(2)
+		return 0
+	}))
+	b.L.SetField(methods, "IsWireframe", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		L.Push(lua.LBool(mr.Wireframe))
+		return 1
+	}))
+	b.L.SetField(methods, "ValidateConstraint", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		if err := mr.ValidateConstraint(); err != nil {
+			L.Push(lua.LFalse)
+			L.Push(lua.LString(err.Error()))
+			return 2
+		}
+		L.Push(lua.LTrue)
+		L.Push(lua.LNil)
+		return 2
+	}))
+	b.L.SetField(methods, "GetTransform", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		if mr.Owner != nil {
+			pushTransformComponent(L, mr.Owner.GetTransformComponent())
+			return 1
+		}
+		L.Push(lua.LNil)
+		return 1
+	}))
+	b.L.SetField(methods, "GetMesh", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		if mr.Owner != nil {
+			pushMeshComponent(L, mr.Owner.GetMeshComponent())
+			return 1
+		}
+		L.Push(lua.LNil)
+		return 1
+	}))
+
+	b.L.SetField(mt, "__index", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		key := L.CheckString(2)
+		if fn := L.GetField(methods, key); fn != lua.LNil {
+			L.Push(fn)
+			return 1
+		}
+		switch key {
+		case "visible", "Visible":
+			L.Push(lua.LBool(mr.Visible))
+		case "wireframe", "Wireframe":
+			L.Push(lua.LBool(mr.Wireframe))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
+		mr := checkMeshRenderable(L, 1)
+		L.Push(lua.LString(fmt.Sprintf("MeshRenderable{visible=%v, wireframe=%v, valid=%v}",
+			mr.Visible, mr.Wireframe, mr.ValidateConstraint() == nil)))
+		return 1
+	}))
+}
+
+func pushMeshComponent(L *lua.LState, mc *engine.MeshComponent) {
+	if mc == nil {
+		L.Push(lua.LNil)
+		return
+	}
+	ud := L.NewUserData()
+	ud.Value = mc
+	L.SetMetatable(ud, L.GetTypeMetatable(luaMeshTypeName))
+	L.Push(ud)
+}
+
+func checkMeshComponent(L *lua.LState, idx int) *engine.MeshComponent {
+	ud := L.CheckUserData(idx)
+	if mc, ok := ud.Value.(*engine.MeshComponent); ok && mc != nil {
+		return mc
+	}
+	L.ArgError(idx, "Mesh component expected")
+	return nil
+}
+
+func pushMeshRenderable(L *lua.LState, mr *engine.MeshRenderable) {
+	if mr == nil {
+		L.Push(lua.LNil)
+		return
+	}
+	ud := L.NewUserData()
+	ud.Value = mr
+	L.SetMetatable(ud, L.GetTypeMetatable(luaMeshRenderableTypeName))
+	L.Push(ud)
+}
+
+func checkMeshRenderable(L *lua.LState, idx int) *engine.MeshRenderable {
+	ud := L.CheckUserData(idx)
+	if mr, ok := ud.Value.(*engine.MeshRenderable); ok && mr != nil {
+		return mr
+	}
+	L.ArgError(idx, "MeshRenderable component expected")
+	return nil
 }
 
 func findComponentByName(obj *engine.GameObject, name string) engine.Component {
