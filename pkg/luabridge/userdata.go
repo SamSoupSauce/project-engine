@@ -23,6 +23,7 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerRendererType()
 	b.registerInteractiveType()
 	b.registerHazardTypes()
+	b.registerComponentTypes()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -267,6 +268,9 @@ func gameObjectMethods() map[string]lua.LGFunction {
 		},
 		"AddRenderable": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
+			if obj.GetTransformComponent() == nil {
+				L.RaiseError("Renderable requires an attached Transform component on GameObject %q", obj.ID)
+			}
 			meshID := L.OptString(2, "cube")
 			materialID := L.OptString(3, "default")
 			scriptName := L.OptString(4, "")
@@ -274,6 +278,112 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			r.ScriptName = scriptName
 			obj.AddComponent(r)
 			pushRenderable(L, r)
+			return 1
+		},
+		"GetComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			comp := findComponentByName(obj, L.CheckString(2))
+			if comp == nil {
+				L.Push(lua.LNil)
+				return 1
+			}
+			pushEngineComponent(L, comp)
+			return 1
+		},
+		"HasComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			L.Push(lua.LBool(findComponentByName(obj, L.CheckString(2)) != nil))
+			return 1
+		},
+		"GetComponents": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			tbl := L.NewTable()
+			idx := 1
+			for _, c := range obj.Components {
+				if c == nil {
+					continue
+				}
+				if pushEngineComponent(L, c) {
+					val := L.Get(-1)
+					L.Pop(1)
+					tbl.RawSetInt(idx, val)
+					idx++
+				} else {
+					L.Pop(1)
+				}
+			}
+			L.Push(tbl)
+			return 1
+		},
+		"AddComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			canon := resolveComponentAlias(L.CheckString(2))
+			switch canon {
+			case "Transform":
+				if existing := obj.GetTransformComponent(); existing != nil {
+					pushTransformComponent(L, existing)
+					return 1
+				}
+				tc := engine.NewTransformComponent()
+				if L.GetTop() >= 5 {
+					tc.SetPosition(engine.NewVector3(float32(L.CheckNumber(3)), float32(L.CheckNumber(4)), float32(L.CheckNumber(5))))
+				}
+				obj.AddComponent(tc)
+				pushTransformComponent(L, tc)
+				return 1
+			case "Renderable":
+				if obj.GetTransformComponent() == nil {
+					L.RaiseError("Renderable requires an attached Transform component on GameObject %q", obj.ID)
+				}
+				meshID := L.OptString(3, "cube")
+				materialID := L.OptString(4, "default")
+				scriptName := L.OptString(5, "")
+				r := engine.NewRenderable(meshID, materialID)
+				r.ScriptName = scriptName
+				obj.AddComponent(r)
+				pushRenderable(L, r)
+				return 1
+			case "Renderable2D":
+				texID := uint32(L.OptInt(3, 0))
+				w := float32(L.OptNumber(4, 64))
+				h := float32(L.OptNumber(5, 64))
+				r2d := engine.NewRenderable2D(texID, w, h)
+				obj.AddComponent(r2d)
+				pushRenderable2D(L, r2d)
+				return 1
+			case "InteractiveComponent":
+				name := L.OptString(3, obj.Name)
+				isDyn := L.OptBool(4, false)
+				ic := spatial.NewInteractiveComponent(name, isDyn)
+				obj.AddComponent(ic)
+				pushInteractive(L, ic)
+				return 1
+			case "FractureComponent":
+				mode := spatial.FractureMode(L.OptInt(3, int(spatial.FractureSplinter)))
+				tier := spatial.PropIntegrityTier(L.OptInt(4, int(spatial.IntegrityStandard)))
+				hp := float32(L.OptNumber(5, 15.0))
+				fc := spatial.NewFractureComponent(mode, tier, hp)
+				obj.AddComponent(fc)
+				pushFracture(L, fc)
+				return 1
+			default:
+				L.RaiseError("unsupported component type %q for AddComponent", L.CheckString(2))
+				return 0
+			}
+		},
+		"RemoveComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			rt := componentReflectType(L.CheckString(2))
+			if rt == nil {
+				L.Push(lua.LFalse)
+				return 1
+			}
+			L.Push(lua.LBool(obj.RemoveComponent(rt)))
+			return 1
+		},
+		"Help": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			L.Push(lua.LString(FormatObjectHelp(obj)))
 			return 1
 		},
 		"GetInteractive": func(L *lua.LState) int {

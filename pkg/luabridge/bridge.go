@@ -284,10 +284,10 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 	lines := []string{
 		"=== Project Engine Developer Console Help ===",
 		"Lua Helpers:",
-		"  help([topic])               Show this help, or help('pick') / help('stdio')",
+		"  help([target])              Show general help, object help (help(selected)), or component help (help('Renderable'))",
 		"  clear()                     Clear console output buffer",
-		"  print(...)                  Print values to console output",
-		"  pick(idOrName) / unpick()   Select or deselect a GameObject (`selected` / `picked`)",
+		"  print(...)                  Print values to console output (GameObjects pretty-print JSON)",
+		"  pick(idOrName) / unpick()   Select or deselect a GameObject (`selected` global)",
 		"  picked() / list_objects()   Inspect active target or list scene GameObjects",
 		"  get_entity_position(name)   Return {x, y, z} world position table",
 		"  set_entity_active(name, b)  Toggle GameObject.Active",
@@ -300,11 +300,25 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 
 func (b *LuaBridge) registerConsoleCommands() {
 	b.RegisterCommand("help", func(args []string) (string, error) {
-		topic := ""
-		if len(args) > 0 {
-			topic = args[0]
+		var txt string
+		if len(args) == 0 {
+			txt = b.FormatHelp("")
+		} else {
+			argStr := strings.TrimSpace(strings.Join(args, " "))
+			if strings.EqualFold(argStr, "selected") || strings.EqualFold(argStr, "picked") {
+				if obj := b.GetPickedObject(); obj != nil {
+					txt = FormatObjectHelp(obj)
+				} else {
+					txt = b.FormatHelp("pick")
+				}
+			} else if compHelp, ok := FormatComponentHelp(argStr); ok {
+				txt = compHelp
+			} else if obj := b.findSceneOrRegisteredObject(argStr); obj != nil {
+				txt = FormatObjectHelp(obj)
+			} else {
+				txt = b.FormatHelp(argStr)
+			}
 		}
-		txt := b.FormatHelp(topic)
 		b.EmitConsole(txt, LineInfo)
 		return txt, nil
 	})
@@ -349,10 +363,13 @@ func (b *LuaBridge) registerStandardEngineAPIs() {
 		}))
 	}
 
-	// help([topic]) callable Lua function
+	// help([target]) callable Lua function supporting topic strings, GameObjects, or components.
 	b.L.SetGlobal("help", b.L.NewFunction(func(L *lua.LState) int {
-		topic := L.OptString(1, "")
-		txt := b.FormatHelp(topic)
+		var arg lua.LValue
+		if L.GetTop() >= 1 {
+			arg = L.Get(1)
+		}
+		txt := b.ResolveHelpArg(arg)
 		b.EmitConsole(txt, LineInfo)
 		return 0
 	}))

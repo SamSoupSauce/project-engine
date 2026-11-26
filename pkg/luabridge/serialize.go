@@ -67,6 +67,15 @@ func SerializeGameObjectJSON(obj *engine.GameObject) string {
 			Type: reflect.TypeOf(c).String(),
 		}
 		switch typed := c.(type) {
+		case *engine.TransformComponent:
+			p := typed.GetPosition()
+			r := typed.GetRotation()
+			s := typed.GetScale()
+			summary.Details = map[string]any{
+				"position": vec3JSON{X: p.X, Y: p.Y, Z: p.Z},
+				"rotation": vec3JSON{X: r.X, Y: r.Y, Z: r.Z},
+				"scale":    vec3JSON{X: s.X, Y: s.Y, Z: s.Z},
+			}
 		case *engine.Renderable:
 			summary.Details = map[string]any{
 				"mesh_id":     typed.MeshID,
@@ -160,6 +169,10 @@ func serializeUserData(L *lua.LState, ud *lua.LUserData) string {
 	switch obj := ud.Value.(type) {
 	case *engine.GameObject:
 		return SerializeGameObjectJSON(obj)
+	case *engine.TransformComponent:
+		p, r, s := obj.GetPosition(), obj.GetRotation(), obj.GetScale()
+		return fmt.Sprintf("Transform{pos=(%.2f, %.2f, %.2f), rot=(%.2f, %.2f, %.2f), scale=(%.2f, %.2f, %.2f)}",
+			p.X, p.Y, p.Z, r.X, r.Y, r.Z, s.X, s.Y, s.Z)
 	case *engine.Renderable:
 		return fmt.Sprintf("Renderable{mesh=%q, material=%q, visible=%v, outlined=%v, flags=0x%X}",
 			obj.MeshID, obj.MaterialID, obj.IsVisible(), obj.IsOutlined(), uint32(obj.Flags))

@@ -22,16 +22,18 @@ type GameObject struct {
 	mu      sync.RWMutex
 }
 
-// NewGameObject initializes an active spatial entity with identity transform.
+// NewGameObject initializes an active spatial entity with an attached TransformComponent.
 func NewGameObject(id, name string) *GameObject {
-	return &GameObject{
+	go_ := &GameObject{
 		ID:         id,
 		Name:       name,
 		Active:     true,
 		Transform:  NewTransform(),
 		Children:   make([]*GameObject, 0),
-		Components: make([]Component, 0),
+		Components: make([]Component, 0, 2),
 	}
+	go_.AddComponent(NewTransformComponent())
+	return go_
 }
 
 // AddChild links a child GameObject into this entity's hierarchy.
@@ -106,6 +108,34 @@ func (go_ *GameObject) GetComponent(targetType reflect.Type) Component {
 		}
 	}
 	return nil
+}
+
+// RemoveComponent detaches the first component matching targetType and calls Destroy().
+func (go_ *GameObject) RemoveComponent(targetType reflect.Type) bool {
+	if go_ == nil || targetType == nil {
+		return false
+	}
+	isIface := targetType.Kind() == reflect.Interface
+	go_.mu.Lock()
+	var removed Component
+	for i, c := range go_.Components {
+		if c == nil {
+			continue
+		}
+		cType := reflect.TypeOf(c)
+		if cType == targetType || (isIface && cType.Implements(targetType)) {
+			removed = c
+			go_.Components = append(go_.Components[:i], go_.Components[i+1:]...)
+			break
+		}
+	}
+	go_.mu.Unlock()
+
+	if removed != nil {
+		removed.Destroy()
+		return true
+	}
+	return false
 }
 
 // GetWorldTransform evaluates the cascaded world-space transform from root to this entity.

@@ -1,5 +1,10 @@
 package engine
 
+import "errors"
+
+// ErrMissingTransformComponent indicates a Renderable's owning GameObject lacks a TransformComponent.
+var ErrMissingTransformComponent = errors.New("renderable: owner GameObject requires an attached TransformComponent")
+
 // RenderFlags defines pipeline configuration bitmasks for rendering entities.
 type RenderFlags uint32
 
@@ -29,11 +34,12 @@ type Renderable struct {
 	Flags        RenderFlags // Pipeline bitmask
 	Color        Color       // Surface base tint
 	WireColor    Color       // Wireframe contour color
-	OutlineColor Color       // Emissive border highlight tint used when FlagOutline is set
-	OutlineWidth float32     // Outline inflation/border factor (default 1.04)
-	CustomSize   *Vector3    // Optional explicit dimensions (overriding mesh defaults)
+	OutlineColor  Color       // Emissive border highlight tint used when FlagOutline is set
+	OutlineWidth  float32     // Outline inflation/border factor (default 1.04)
+	CustomSize    *Vector3    // Optional explicit dimensions (overriding mesh defaults)
 
-	Owner *GameObject
+	Owner         *GameObject
+	ConstraintErr error // Non-nil if Owner lacks an attached TransformComponent
 }
 
 // NewRenderable creates a visible renderable with default white color.
@@ -49,9 +55,26 @@ func NewRenderable(meshID, materialID string) *Renderable {
 	}
 }
 
-// Init registers the owner GameObject pointer.
+// Init registers the owner GameObject pointer and checks the TransformComponent constraint.
 func (r *Renderable) Init(owner *GameObject) {
 	r.Owner = owner
+	r.ConstraintErr = r.ValidateConstraint()
+}
+
+// ValidateConstraint enforces that the owning GameObject has an attached TransformComponent.
+func (r *Renderable) ValidateConstraint() error {
+	if r == nil || r.Owner == nil || r.Owner.GetTransformComponent() == nil {
+		return ErrMissingTransformComponent
+	}
+	return nil
+}
+
+// TransformComponent returns the required TransformComponent on this Renderable's Owner, or nil.
+func (r *Renderable) TransformComponent() *TransformComponent {
+	if r == nil || r.Owner == nil {
+		return nil
+	}
+	return r.Owner.GetTransformComponent()
 }
 
 // Update satisfies the Component interface.
@@ -178,18 +201,20 @@ func (b *RenderPassBuffer) extractNode(node *GameObject, inheritedFlags RenderFl
 		}
 
 		if effectiveVisible {
-			worldT := node.GetWorldTransform()
-			b.Commands = append(b.Commands, DrawCommand{
-				WorldTransform: worldT,
-				MeshID:         renderable.MeshID,
-				MaterialID:     renderable.MaterialID,
-				Flags:          effectiveFlags,
-				Color:          renderable.Color,
-				WireColor:      renderable.WireColor,
-				OutlineColor:   renderable.OutlineColor,
-				OutlineWidth:   renderable.OutlineWidth,
-				CustomSize:     renderable.CustomSize,
-			})
+			if tc := node.GetTransformComponent(); tc != nil {
+				worldT := tc.WorldTransform()
+				b.Commands = append(b.Commands, DrawCommand{
+					WorldTransform: worldT,
+					MeshID:         renderable.MeshID,
+					MaterialID:     renderable.MaterialID,
+					Flags:          effectiveFlags,
+					Color:          renderable.Color,
+					WireColor:      renderable.WireColor,
+					OutlineColor:   renderable.OutlineColor,
+					OutlineWidth:   renderable.OutlineWidth,
+					CustomSize:     renderable.CustomSize,
+				})
+			}
 		}
 	}
 
@@ -235,7 +260,7 @@ func dispatchRenderNode(node *GameObject, parentVisible bool, gfx *Renderer) {
 			effectiveVisible = parentVisible && renderable.Flags.Has(FlagVisible)
 		}
 
-		if effectiveVisible && node.IsSpawned() {
+		if effectiveVisible && node.IsSpawned() && node.GetTransformComponent() != nil {
 			node.DispatchRender(gfx, renderable.ScriptName)
 		}
 	}

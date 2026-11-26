@@ -9,21 +9,10 @@ import (
 	"github.com/SamSoupSauce/project-engine/engine/spatial"
 )
 
-// TransformComponent wraps entity position, rotation, and scale synchronized with GameObject.Transform.
-type TransformComponent struct {
-	Owner *engine.GameObject
-}
+// TransformComponent aliases engine.TransformComponent so all engine packages share one canonical component.
+type TransformComponent = engine.TransformComponent
 
-func NewTransformComponent() *TransformComponent               { return &TransformComponent{} }
-func (t *TransformComponent) Init(owner *engine.GameObject)    { t.Owner = owner }
-func (t *TransformComponent) Update(_ float32)                 {}
-func (t *TransformComponent) Destroy()                         { t.Owner = nil }
-func (t *TransformComponent) GetPosition() engine.Vector3      { return t.Owner.Transform.Position }
-func (t *TransformComponent) SetPosition(v engine.Vector3)     { t.Owner.Transform.Position = v }
-func (t *TransformComponent) GetRotation() engine.Vector3      { return t.Owner.Transform.Rotation }
-func (t *TransformComponent) SetRotation(v engine.Vector3)     { t.Owner.Transform.Rotation = v }
-func (t *TransformComponent) GetScale() engine.Vector3         { return t.Owner.Transform.Scale }
-func (t *TransformComponent) SetScale(v engine.Vector3)        { t.Owner.Transform.Scale = v }
+func NewTransformComponent() *TransformComponent { return engine.NewTransformComponent() }
 
 // MeshRendererComponent manages .gltf/.glb geometry, PBR material overrides, visibility flags,
 // and named attachment sockets bound to an engine.Renderable.
