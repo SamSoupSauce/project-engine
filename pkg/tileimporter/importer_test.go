@@ -203,4 +203,9 @@ func TestContiguousStitchingAndMultiLayer(t *testing.T) {
 		t.Errorf("contiguous vertical stitching mismatch: ground ceil [%f, %f] vs upper floor [%f, %f]",
 			gCeil.Min.Y, gCeil.Max.Y, uFloor.Min.Y, uFloor.Max.Y)
 	}
+
+	bounds := worldMap.ExportStaticColliderBounds()
+	if len(bounds) < len(worldMap.Tiles) {
+		t.Errorf("expected ExportStaticColliderBounds to emit at least one bound per tile (%d), got %d", len(worldMap.Tiles), len(bounds))
+	}
 }

@@ -18,6 +18,8 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerGameObjectType()
 	b.registerSceneType()
 	b.registerRenderable2DType()
+	b.registerRenderableType()
+	b.registerRendererType()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -255,6 +257,22 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			L.Push(tbl)
 			return 1
 		},
+		"GetRenderable": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			pushRenderable(L, findRenderable(obj))
+			return 1
+		},
+		"AddRenderable": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			meshID := L.OptString(2, "cube")
+			materialID := L.OptString(3, "default")
+			scriptName := L.OptString(4, "")
+			r := engine.NewRenderable(meshID, materialID)
+			r.ScriptName = scriptName
+			obj.AddComponent(r)
+			pushRenderable(L, r)
+			return 1
+		},
 		"GetRenderable2D": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
 			pushRenderable2D(L, findRenderable2D(obj))
@@ -464,6 +482,15 @@ func sceneMethods() map[string]lua.LGFunction {
 			id := L.CheckString(2)
 			name := L.OptString(3, id)
 			pushGameObject(L, engine.NewGameObject(id, name))
+			return 1
+		},
+		"GetRenderer": func(L *lua.LState) int {
+			s := checkScene(L, 1)
+			if rp, ok := s.(interface{ GetRenderer() *engine.Renderer }); ok {
+				pushRenderer(L, rp.GetRenderer())
+				return 1
+			}
+			L.Push(lua.LNil)
 			return 1
 		},
 	}

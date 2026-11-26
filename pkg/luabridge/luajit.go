@@ -173,6 +173,10 @@ func NewLuaJITBridge() (*LuaJITBridge, error) {
 		C.lua_close(L)
 		return nil, fmt.Errorf("luabridge: failed registering default ffi.cdef: %w", err)
 	}
+	if err := b.RegisterPhysicsFFI(); err != nil {
+		C.lua_close(L)
+		return nil, fmt.Errorf("luabridge: failed registering physics ffi.cdef: %w", err)
+	}
 	return b, nil
 }
 

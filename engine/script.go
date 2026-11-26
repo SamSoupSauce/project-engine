@@ -11,6 +11,19 @@ type ScriptLifecycle interface {
 	OnDespawn(sender *GameObject, data any)
 }
 
+// RenderLifecycle is optionally implemented by script components that expose a
+// per-instance render(self, gfx) hook invoked when attached alongside a Renderable.
+type RenderLifecycle interface {
+	OnRender(gfx *Renderer)
+}
+
+// NamedRenderLifecycle extends RenderLifecycle to accept an optional ScriptName
+// prefix override (from Renderable.ScriptName) for <ScriptName>_render(self, gfx).
+type NamedRenderLifecycle interface {
+	RenderLifecycle
+	OnRenderWithScriptName(gfx *Renderer, scriptName string)
+}
+
 // EventBus defines a scene-level dispatcher for named GameObject events.
 type EventBus interface {
 	Emit(name string, sender *GameObject, data any)

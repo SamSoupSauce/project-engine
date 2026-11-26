@@ -14,6 +14,8 @@ type BaseScene struct {
 	Root           *GameObject
 	Camera         Camera3D
 	TickIntervalMs int
+	Renderer       *Renderer
+	Batcher2D      *OrthoBatcher2D
 
 	loaded      bool
 	tickAccumMs float64
@@ -27,6 +29,7 @@ func NewBaseScene(name string) *BaseScene {
 		Name:           name,
 		Root:           root,
 		TickIntervalMs: DefaultTickIntervalMs,
+		Renderer:       NewRenderer(1280, 720),
 		Camera: Camera3D{
 			Position:   NewVector3(0, 10, 10),
 			Target:     NewVector3(0, 0, 0),
@@ -118,11 +121,64 @@ func (s *BaseScene) Tick(dtMs int) {
 	}
 }
 
-// Draw3D provides a default no-op 3D render pass.
-func (s *BaseScene) Draw3D() {}
+// GetRenderer returns the scene's unified Renderer, initializing it lazily if needed.
+func (s *BaseScene) GetRenderer() *Renderer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Renderer == nil {
+		s.Renderer = NewRenderer(1280, 720)
+	}
+	return s.Renderer
+}
 
-// Draw2D provides a default no-op 2D render pass.
-func (s *BaseScene) Draw2D() {}
+// SetViewportSize updates the scene Renderer's viewport dimensions.
+func (s *BaseScene) SetViewportSize(width, height float32) {
+	s.GetRenderer().SetViewportSize(width, height)
+}
+
+// SetBatcher2D attaches an OrthoBatcher2D used by Draw2D to flush script-submitted 2D quads.
+func (s *BaseScene) SetBatcher2D(batcher *OrthoBatcher2D) {
+	s.mu.Lock()
+	s.Batcher2D = batcher
+	s.mu.Unlock()
+}
+
+// Render extracts passive Renderable draw commands and dispatches per-instance render
+// hooks on all active, spawned, visible GameObjects with a Renderable component.
+func (s *BaseScene) Render(gfx *Renderer) {
+	if !s.IsLoaded() || s.Root == nil || gfx == nil {
+		return
+	}
+	if gfx.Buffer3D != nil {
+		gfx.Buffer3D.ExtractFromHierarchy(s.Root)
+	}
+	DispatchRenderFromHierarchy(s.Root, gfx)
+}
+
+// Draw3D resets the scene's Renderer, extracts 3D Renderable commands, and dispatches
+// per-instance render hooks for spawned Renderable entities.
+func (s *BaseScene) Draw3D() {
+	if !s.IsLoaded() {
+		return
+	}
+	gfx := s.GetRenderer()
+	gfx.Reset(gfx.ViewportW, gfx.ViewportH)
+	s.Render(gfx)
+}
+
+// Draw2D flushes any 2D quad commands submitted to the scene's Renderer when Batcher2D is set.
+func (s *BaseScene) Draw2D() {
+	if !s.IsLoaded() {
+		return
+	}
+	s.mu.RLock()
+	batcher := s.Batcher2D
+	gfx := s.Renderer
+	s.mu.RUnlock()
+	if batcher != nil && gfx != nil {
+		gfx.Flush2D(batcher)
+	}
+}
 
 // GetCamera returns the scene's active 3D camera.
 func (s *BaseScene) GetCamera() Camera3D {

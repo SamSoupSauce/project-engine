@@ -2,6 +2,7 @@ package luabridge
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -14,6 +15,7 @@ import (
 type ScriptComponent struct {
 	Bridge     *LuaBridge
 	ScriptPath string
+	ScriptName string
 	Owner      *engine.GameObject
 
 	env         *lua.LTable
@@ -215,6 +217,93 @@ func (sc *ScriptComponent) OnDespawn(sender *engine.GameObject, data any) {
 	})
 }
 
+// EffectiveScriptName returns the configured ScriptName, or derives it from the
+// base filename of ScriptPath without its extension.
+func (sc *ScriptComponent) EffectiveScriptName() string {
+	sc.mu.RLock()
+	name := strings.TrimSpace(sc.ScriptName)
+	path := sc.ScriptPath
+	sc.mu.RUnlock()
+
+	if name != "" {
+		return name
+	}
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	base := filepath.Base(trimmed)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// OnRender invokes the script's optional <ScriptName>_render(self, gfx) or render(self, gfx) hook.
+func (sc *ScriptComponent) OnRender(gfx *engine.Renderer) {
+	sc.OnRenderWithScriptName(gfx, "")
+}
+
+// OnRenderWithScriptName invokes <scriptName>_render(self, gfx) using scriptNameOverride
+// (when provided by Renderable.ScriptName) or the script's effective ScriptName, falling
+// back to an unprefixed render(self, gfx) function in the script's isolated environment.
+func (sc *ScriptComponent) OnRenderWithScriptName(gfx *engine.Renderer, scriptNameOverride string) {
+	sc.mu.RLock()
+	bridge := sc.Bridge
+	owner := sc.Owner
+	env := sc.env
+	mod := sc.moduleTable
+	loaded := sc.loaded
+	scriptPath := sc.ScriptPath
+	sc.mu.RUnlock()
+
+	if !loaded || bridge == nil || bridge.L == nil {
+		return
+	}
+
+	prefix := strings.TrimSpace(scriptNameOverride)
+	if prefix == "" {
+		prefix = sc.EffectiveScriptName()
+	}
+
+	bridge.stateMu.Lock()
+	defer bridge.stateMu.Unlock()
+
+	L := bridge.L
+	var fn *lua.LFunction
+	hookName := "render"
+
+	if prefix != "" {
+		prefixed := prefix + "_render"
+		fn = lookupHookWithGlobal(L, env, mod, prefixed)
+		if fn != nil {
+			hookName = prefixed
+		}
+	}
+	if fn == nil {
+		fn = lookupHook(env, mod, "render")
+	}
+	if fn == nil {
+		return
+	}
+
+	args := []lua.LValue{
+		gameObjectArg(L, owner),
+		rendererArg(L, gfx),
+	}
+	if err := L.CallByParam(lua.P{
+		Fn:      fn,
+		NRet:    0,
+		Protect: true,
+	}, args...); err != nil {
+		sc.setLastError(err)
+		bridge.dataMu.Lock()
+		bridge.outputLogs = append(bridge.outputLogs, fmt.Sprintf("script error [%s:%s]: %v", scriptPath, hookName, err))
+		cb := bridge.OnScriptError
+		bridge.dataMu.Unlock()
+		if cb != nil {
+			cb(scriptPath, hookName, err)
+		}
+	}
+}
+
 func (sc *ScriptComponent) callHook(hookName string, buildArgs func(L *lua.LState, owner *engine.GameObject) []lua.LValue) {
 	sc.mu.RLock()
 	bridge := sc.Bridge
@@ -273,6 +362,25 @@ func lookupHook(env, mod *lua.LTable, name string) *lua.LFunction {
 		}
 	}
 	return nil
+}
+
+func lookupHookWithGlobal(L *lua.LState, env, mod *lua.LTable, name string) *lua.LFunction {
+	if fn := lookupHook(env, mod, name); fn != nil {
+		return fn
+	}
+	if L != nil {
+		if fn, ok := L.GetGlobal(name).(*lua.LFunction); ok {
+			return fn
+		}
+	}
+	return nil
+}
+
+func rendererArg(L *lua.LState, gfx *engine.Renderer) lua.LValue {
+	if gfx == nil {
+		return lua.LNil
+	}
+	return rendererToUserData(L, gfx)
 }
 
 func gameObjectArg(L *lua.LState, obj *engine.GameObject) lua.LValue {
