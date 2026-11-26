@@ -44,18 +44,28 @@ func boxFromBounds(min, max engine.Vector3) (boxSubShape, bool) {
 // into a single Jolt StaticCompoundShape static body containing all floor slabs,
 // walls, corner seams, and staircase steps.
 func BuildWorldMapCollider(world *PhysicsWorld, src MapColliderSource) (uint32, error) {
+	return BuildWorldMapColliderWithUserData(world, src, 0)
+}
+
+// BuildWorldMapColliderWithUserData converts a MapColliderSource into a single Jolt
+// StaticCompoundShape static body and attaches entity userData for raycast identification.
+func BuildWorldMapColliderWithUserData(world *PhysicsWorld, src MapColliderSource, userData uint32) (uint32, error) {
 	if world == nil {
 		return InvalidBodyID, fmt.Errorf("spatial: physics world must not be nil")
 	}
 	if src == nil {
 		return InvalidBodyID, fmt.Errorf("spatial: map collider source must not be nil")
 	}
-	return BuildWorldMapColliderFromBounds(world, src.ExportStaticColliderBounds())
+	return buildWorldMapColliderBounds(world, src.ExportStaticColliderBounds(), userData)
 }
 
 // BuildWorldMapColliderFromBounds compiles [min, max] XYZ bounds slices into a single
 // Jolt StaticCompoundShape static body in PhysicsWorld.
 func BuildWorldMapColliderFromBounds(world *PhysicsWorld, bounds [][2][3]float32) (uint32, error) {
+	return buildWorldMapColliderBounds(world, bounds, 0)
+}
+
+func buildWorldMapColliderBounds(world *PhysicsWorld, bounds [][2][3]float32, userData uint32) (uint32, error) {
 	if world == nil {
 		return InvalidBodyID, fmt.Errorf("spatial: physics world must not be nil")
 	}
@@ -67,7 +77,7 @@ func BuildWorldMapColliderFromBounds(world *PhysicsWorld, bounds [][2][3]float32
 			shapes = append(shapes, sub)
 		}
 	}
-	return buildStaticCompoundSubShapes(world, shapes)
+	return buildStaticCompoundSubShapes(world, shapes, userData)
 }
 
 // BuildStaticCompoundFromBoxes compiles arbitrary axis-aligned BoundingBoxes into a single
@@ -82,10 +92,10 @@ func BuildStaticCompoundFromBoxes(world *PhysicsWorld, boxes []engine.BoundingBo
 			shapes = append(shapes, b)
 		}
 	}
-	return buildStaticCompoundSubShapes(world, shapes)
+	return buildStaticCompoundSubShapes(world, shapes, 0)
 }
 
-func buildStaticCompoundSubShapes(world *PhysicsWorld, shapes []boxSubShape) (uint32, error) {
+func buildStaticCompoundSubShapes(world *PhysicsWorld, shapes []boxSubShape, userData uint32) (uint32, error) {
 	if len(shapes) == 0 {
 		return InvalidBodyID, fmt.Errorf("spatial: no valid collider shapes generated")
 	}
@@ -158,6 +168,7 @@ func buildStaticCompoundSubShapes(world *PhysicsWorld, shapes []boxSubShape) (ui
 	}
 	defer C.JPH_BodyCreationSettings_Destroy(bodySettings)
 
+	C.JPH_BodyCreationSettings_SetUserData(bodySettings, C.uint64_t(userData))
 	bodyID := uint32(C.JPH_BodyInterface_CreateAndAddBody(iface, bodySettings, C.JPH_Activation_DontActivate))
 	if bodyID == InvalidBodyID {
 		return InvalidBodyID, fmt.Errorf("spatial: failed adding static compound collider body")

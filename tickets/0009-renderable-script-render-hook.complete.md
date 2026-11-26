@@ -1,4 +1,4 @@
-# 0007: Add Renderable Per-Instance Script Render Hook (`ScriptName_render(self, gfx)`)
+# 0009: Add Renderable Per-Instance Script Render Hook (`ScriptName_render(self, gfx)`)
 
 ## Summary
 Currently, `engine.Renderable` (`engine/renderable.go`) and `engine.Renderable2D` (`engine/renderable2d.go`) are passive data components evaluated by `RenderPassBuffer.ExtractFromHierarchy` and `Extract2DFromHierarchy`, and `engine.ScriptLifecycle` (`engine/script.go`) only dispatches six hooks (`load`, `unload`, `spawn`, `event`, `tick`, `despawn`). Neither component triggers a per-instance script render callback, and no `Renderer` (`gfx`) handle is exposed to `GameObject` scripts.
@@ -40,8 +40,8 @@ Add support for a per-instance render hook—such as `ScriptName_render(self: Ga
 
 ---
 ### Completion Summary
-- **Ticket:** 0007-renderable-script-render-hook (renumbered from 0006 to avoid colliding with `0006-jolt-physics-luajit-ffi`)
-- **Branch:** 0007-renderable-script-render-hook
+- **Ticket:** 0009-renderable-script-render-hook (renumbered to avoid colliding with `0006`–`0008`)
+- **Branch:** 0008-renderable-script-render-hook (committed in `ff7b517`)
 - **Summary of Changes:**
   - Added unified `Renderer` (`gfx`) in `engine/renderer.go` collecting 3D `DrawCommand`s (`RenderPassBuffer`) and 2D `QuadCommand2D`s (`OrthoBatcher2D`) with viewport size tracking and stable `ZIndex` sorting.
   - Added `RenderLifecycle` and `NamedRenderLifecycle` interfaces in `engine/script.go`, `Renderable.ScriptName` + `SetVisible`/`IsVisible` + `DispatchRenderFromHierarchy` in `engine/renderable.go`, and `GameObject.DispatchRender` in `engine/game_object.go`.

@@ -240,3 +240,52 @@ func TestStaticMeshColliderRaycast(t *testing.T) {
 		t.Fatalf("expected mesh raycast hit at distance 4.0, got %+v", hit)
 	}
 }
+
+func TestRaycastMaskAndEntityUserData(t *testing.T) {
+	world, err := NewPhysicsWorld(DefaultPhysicsWorldConfig())
+	if err != nil {
+		t.Fatalf("NewPhysicsWorld failed: %v", err)
+	}
+	defer world.Destroy()
+
+	// Static wall at z=8 on LayerNonMoving with user_data=1001
+	wallObj := engine.NewGameObject("wall", "StaticWall")
+	wallObj.Transform.Position = engine.NewVector3(0, 1, 8)
+	wallRB := NewRigidBody("wall", world, engine.BodyStatic, BoxShapeDesc(2, 2, 0.5))
+	wallRB.UserData = 1001
+	wallObj.AddComponent(wallRB)
+
+	// Interactable prop at z=4 on LayerInteractable with user_data=2042
+	propObj := engine.NewGameObject("door_knob", "InteractableProp")
+	propObj.Transform.Position = engine.NewVector3(0, 1, 4)
+	propRB := NewRigidBody("door_knob", world, engine.BodyDynamic, BoxShapeDesc(0.5, 0.5, 0.5))
+	propRB.GravityFactor = 0
+	propRB.UserData = 2042
+	propRB.SetObjectLayer(LayerInteractable)
+	propObj.AddComponent(propRB)
+
+	world.OptimizeBroadPhase()
+
+	ray := engine.Ray{
+		Position:  engine.NewVector3(0, 1, 0),
+		Direction: engine.NewVector3(0, 0, 1),
+	}
+
+	// All layers -> hits closer interactable prop at z=3.5
+	allHit := world.Raycast(ray, 20.0)
+	if !allHit.Hit || allHit.UserData != 2042 || math.Abs(float64(allHit.Distance-3.5)) > 0.05 {
+		t.Fatalf("expected all-layer raycast to hit prop user_data=2042 at d=3.5, got %+v", allHit)
+	}
+
+	// LayerMaskNonMoving -> ignores prop and hits wall at z=7.5
+	wallHit := world.RaycastMask(ray, 20.0, LayerMaskNonMoving)
+	if !wallHit.Hit || wallHit.UserData != 1001 || math.Abs(float64(wallHit.Distance-7.5)) > 0.05 {
+		t.Fatalf("expected non-moving layer raycast to hit wall user_data=1001 at d=7.5, got %+v", wallHit)
+	}
+
+	// LayerMaskMoving -> misses both static wall and interactable prop
+	movingHit := world.RaycastMask(ray, 20.0, LayerMaskMoving)
+	if movingHit.Hit {
+		t.Fatalf("expected moving-only layer mask to miss, got %+v", movingHit)
+	}
+}

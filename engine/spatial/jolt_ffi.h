@@ -14,11 +14,14 @@
 extern "C" {
 #endif
 
+#ifndef JOLT_VEC3_DEFINED
+#define JOLT_VEC3_DEFINED
 typedef struct JoltVec3 {
     float x;
     float y;
     float z;
 } JoltVec3;
+#endif
 
 typedef struct JoltHitResult {
     uint8_t hit;
