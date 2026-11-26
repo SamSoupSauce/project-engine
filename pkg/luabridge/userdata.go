@@ -233,7 +233,7 @@ func gameObjectMethods() map[string]lua.LGFunction {
 		},
 		"GetComponent": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
-			comp := findComponentByName(obj, L.CheckString(2))
+			comp := findComponentByName(obj, resolveComponentArg(L, 2))
 			if comp == nil {
 				L.Push(lua.LNil)
 				return 1
@@ -243,7 +243,7 @@ func gameObjectMethods() map[string]lua.LGFunction {
 		},
 		"HasComponent": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
-			L.Push(lua.LBool(findComponentByName(obj, L.CheckString(2)) != nil))
+			L.Push(lua.LBool(findComponentByName(obj, resolveComponentArg(L, 2)) != nil))
 			return 1
 		},
 		"GetComponents": func(L *lua.LState) int {
@@ -268,7 +268,8 @@ func gameObjectMethods() map[string]lua.LGFunction {
 		},
 		"AddComponent": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
-			canon := resolveComponentAlias(L.CheckString(2))
+			compName := resolveComponentArg(L, 2)
+			canon := resolveComponentAlias(compName)
 			switch canon {
 			case "Transform":
 				if existing := obj.GetTransformComponent(); existing != nil {
@@ -338,13 +339,13 @@ func gameObjectMethods() map[string]lua.LGFunction {
 				pushFracture(L, fc)
 				return 1
 			default:
-				L.RaiseError("unsupported component type %q for AddComponent", L.CheckString(2))
+				L.RaiseError("unsupported component type %q for AddComponent", compName)
 				return 0
 			}
 		},
 		"RemoveComponent": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
-			rt := componentReflectType(L.CheckString(2))
+			rt := componentReflectType(resolveComponentArg(L, 2))
 			if rt == nil {
 				L.Push(lua.LFalse)
 				return 1

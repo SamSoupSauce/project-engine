@@ -284,13 +284,14 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 	lines := []string{
 		"=== Project Engine Developer Console Help ===",
 		"Lua Helpers:",
-		"  help([target])              Show general help, object help (help(selected)), or component help (help('Renderable'))",
+		"  help([target])              Show general help, object help (help(selected)), or class help (help(Mesh))",
 		"  clear()                     Clear console output buffer",
-		"  print(...)                  Print values to console output (GameObjects pretty-print JSON)",
+		"  print(...)                  Print values to console output (GameObjects & Components pretty-print JSON)",
 		"  pick(idOrName) / unpick()   Select or deselect a GameObject (`selected` global)",
 		"  picked() / list_objects()   Inspect active target or list scene GameObjects",
 		"  get_entity_position(name)   Return {x, y, z} world position table",
 		"  set_entity_active(name, b)  Toggle GameObject.Active",
+		"Component Classes: Transform, Mesh, MeshRenderable, Renderable, Renderable2D, RigidBody, InteractiveComponent, FractureComponent, ScriptComponent",
 	}
 	if len(cmds) > 0 {
 		lines = append(lines, "Console Commands: "+strings.Join(cmds, ", "))
@@ -340,7 +341,12 @@ func (b *LuaBridge) registerStandardEngineAPIs() {
 		top := L.GetTop()
 		parts := make([]string, 0, top)
 		for i := 1; i <= top; i++ {
-			parts = append(parts, L.ToStringMeta(L.Get(i)).String())
+			v := L.Get(i)
+			if ud, ok := v.(*lua.LUserData); ok && ud != nil {
+				parts = append(parts, serializeUserData(L, ud))
+			} else {
+				parts = append(parts, L.ToStringMeta(v).String())
+			}
 		}
 		b.EmitConsole(strings.Join(parts, "\t"), LineOutput)
 		return 0

@@ -224,7 +224,7 @@ func FormatObjectHelp(obj *engine.GameObject) string {
 			}
 		}
 	}
-	sb.WriteString("Tip: Run `help(\"<ComponentName>\")` or `help(selected:GetComponent(\"<ComponentName>\"))` for component details.")
+	sb.WriteString("Tip: Run `help(Mesh)`, `help(<ComponentName>)`, or `help(selected:GetComponent(Mesh))` for component details.")
 	return sb.String()
 }
 
@@ -267,6 +267,12 @@ func (b *LuaBridge) ResolveHelpArg(arg lua.LValue) string {
 	if ud, ok := arg.(*lua.LUserData); ok && ud != nil && ud.Value != nil {
 		if obj, ok := ud.Value.(*engine.GameObject); ok {
 			return FormatObjectHelp(obj)
+		}
+		if cc, ok := ud.Value.(*ComponentClass); ok {
+			if txt, found := FormatComponentHelp(cc.Name); found {
+				return txt
+			}
+			return fmt.Sprintf("Component Class: %s (%s)", cc.Name, cc.GoType)
 		}
 		if comp, ok := ud.Value.(engine.Component); ok {
 			canon := componentCanonicalName(comp)

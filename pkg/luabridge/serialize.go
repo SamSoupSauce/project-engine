@@ -25,6 +25,7 @@ type transformJSON struct {
 }
 
 type componentSummaryJSON struct {
+	Name    string         `json:"name,omitempty"`
 	Type    string         `json:"type"`
 	Details map[string]any `json:"details,omitempty"`
 }
@@ -37,6 +38,100 @@ type gameObjectJSON struct {
 	ParentID   string                 `json:"parent_id,omitempty"`
 	Children   []string               `json:"children,omitempty"`
 	Components []componentSummaryJSON `json:"components"`
+}
+
+func buildComponentSummaryJSON(c engine.Component) componentSummaryJSON {
+	summary := componentSummaryJSON{
+		Name: componentCanonicalName(c),
+		Type: reflect.TypeOf(c).String(),
+	}
+	switch typed := c.(type) {
+	case *engine.TransformComponent:
+		p := typed.GetPosition()
+		r := typed.GetRotation()
+		s := typed.GetScale()
+		summary.Details = map[string]any{
+			"position": vec3JSON{X: p.X, Y: p.Y, Z: p.Z},
+			"rotation": vec3JSON{X: r.X, Y: r.Y, Z: r.Z},
+			"scale":    vec3JSON{X: s.X, Y: s.Y, Z: s.Z},
+		}
+	case *engine.MeshComponent:
+		details := map[string]any{
+			"file_path": typed.FilePath,
+			"triangles": typed.TriangleCount(),
+			"loaded":    typed.Asset != nil,
+		}
+		if typed.Asset != nil {
+			b := typed.Bounds()
+			details["bounds"] = map[string]vec3JSON{
+				"min": {X: b.Min.X, Y: b.Min.Y, Z: b.Min.Z},
+				"max": {X: b.Max.X, Y: b.Max.Y, Z: b.Max.Z},
+			}
+		}
+		summary.Details = details
+	case *engine.MeshRenderable:
+		summary.Details = map[string]any{
+			"visible":   typed.Visible,
+			"wireframe": typed.Wireframe,
+			"valid":     typed.ValidateConstraint() == nil,
+		}
+	case *engine.Renderable:
+		summary.Details = map[string]any{
+			"mesh_id":     typed.MeshID,
+			"material_id": typed.MaterialID,
+			"visible":     typed.IsVisible(),
+			"outlined":    typed.IsOutlined(),
+			"flags":       uint32(typed.Flags),
+		}
+	case *engine.Renderable2D:
+		summary.Details = map[string]any{
+			"texture_id": typed.TextureID,
+			"width":      typed.Size.X,
+			"height":     typed.Size.Y,
+			"z_index":    typed.ZIndex,
+			"visible":    typed.IsVisible(),
+		}
+	case *spatial.RigidBody:
+		summary.Details = map[string]any{
+			"id":        typed.ID,
+			"body_id":   typed.BodyID,
+			"body_type": typed.BodyType,
+			"mass":      typed.Mass,
+		}
+	case *spatial.InteractiveComponent:
+		summary.Details = map[string]any{
+			"display_name": typed.DisplayName,
+			"enabled":      typed.Enabled,
+			"hovered":      typed.Hovered,
+			"held":         typed.Held,
+		}
+	case *spatial.FractureComponent:
+		summary.Details = map[string]any{
+			"health":      typed.Health,
+			"mode":        typed.FractureMode,
+			"carry_hands": typed.RequiredCarryHands,
+			"broken":      typed.Broken,
+		}
+	case *ScriptComponent:
+		summary.Details = map[string]any{
+			"script_path": typed.ScriptPath,
+			"script_name": typed.ScriptName,
+		}
+	}
+	return summary
+}
+
+// SerializeComponentJSON formats a single engine.Component as pretty-printed indented JSON.
+func SerializeComponentJSON(comp engine.Component) string {
+	if comp == nil {
+		return "Nil"
+	}
+	summary := buildComponentSummaryJSON(comp)
+	raw, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("Component(%T)", comp)
+	}
+	return string(raw)
 }
 
 // SerializeGameObjectJSON formats an engine.GameObject (identity, hierarchy, components) as indented JSON.
@@ -62,70 +157,7 @@ func SerializeGameObjectJSON(obj *engine.GameObject) string {
 		if c == nil {
 			continue
 		}
-		summary := componentSummaryJSON{
-			Type: reflect.TypeOf(c).String(),
-		}
-		switch typed := c.(type) {
-		case *engine.TransformComponent:
-			p := typed.GetPosition()
-			r := typed.GetRotation()
-			s := typed.GetScale()
-			summary.Details = map[string]any{
-				"position": vec3JSON{X: p.X, Y: p.Y, Z: p.Z},
-				"rotation": vec3JSON{X: r.X, Y: r.Y, Z: r.Z},
-				"scale":    vec3JSON{X: s.X, Y: s.Y, Z: s.Z},
-			}
-		case *engine.MeshComponent:
-			summary.Details = map[string]any{
-				"file_path": typed.FilePath,
-				"triangles": typed.TriangleCount(),
-				"loaded":    typed.Asset != nil,
-			}
-		case *engine.MeshRenderable:
-			summary.Details = map[string]any{
-				"visible":   typed.Visible,
-				"wireframe": typed.Wireframe,
-				"valid":     typed.ValidateConstraint() == nil,
-			}
-		case *engine.Renderable:
-			summary.Details = map[string]any{
-				"mesh_id":     typed.MeshID,
-				"material_id": typed.MaterialID,
-				"visible":     typed.IsVisible(),
-				"outlined":    typed.IsOutlined(),
-				"flags":       uint32(typed.Flags),
-			}
-		case *engine.Renderable2D:
-			summary.Details = map[string]any{
-				"texture_id": typed.TextureID,
-				"width":      typed.Size.X,
-				"height":     typed.Size.Y,
-				"z_index":    typed.ZIndex,
-				"visible":    typed.IsVisible(),
-			}
-		case *spatial.RigidBody:
-			summary.Details = map[string]any{
-				"id":        typed.ID,
-				"body_id":   typed.BodyID,
-				"body_type": typed.BodyType,
-				"mass":      typed.Mass,
-			}
-		case *spatial.InteractiveComponent:
-			summary.Details = map[string]any{
-				"display_name": typed.DisplayName,
-				"enabled":      typed.Enabled,
-				"hovered":      typed.Hovered,
-				"held":         typed.Held,
-			}
-		case *spatial.FractureComponent:
-			summary.Details = map[string]any{
-				"health":      typed.Health,
-				"mode":        typed.FractureMode,
-				"carry_hands": typed.RequiredCarryHands,
-				"broken":      typed.Broken,
-			}
-		}
-		comps = append(comps, summary)
+		comps = append(comps, buildComponentSummaryJSON(c))
 	}
 
 	payload := gameObjectJSON{
@@ -175,29 +207,10 @@ func serializeUserData(L *lua.LState, ud *lua.LUserData) string {
 	switch obj := ud.Value.(type) {
 	case *engine.GameObject:
 		return SerializeGameObjectJSON(obj)
-	case *engine.TransformComponent:
-		p, r, s := obj.GetPosition(), obj.GetRotation(), obj.GetScale()
-		return fmt.Sprintf("Transform{pos=(%.2f, %.2f, %.2f), rot=(%.2f, %.2f, %.2f), scale=(%.2f, %.2f, %.2f)}",
-			p.X, p.Y, p.Z, r.X, r.Y, r.Z, s.X, s.Y, s.Z)
-	case *engine.MeshComponent:
-		return fmt.Sprintf("Mesh{path=%q, tris=%d, loaded=%v}", obj.FilePath, obj.TriangleCount(), obj.Asset != nil)
-	case *engine.MeshRenderable:
-		return fmt.Sprintf("MeshRenderable{visible=%v, wireframe=%v, valid=%v}",
-			obj.Visible, obj.Wireframe, obj.ValidateConstraint() == nil)
-	case *engine.Renderable:
-		return fmt.Sprintf("Renderable{mesh=%q, material=%q, visible=%v, outlined=%v, flags=0x%X}",
-			obj.MeshID, obj.MaterialID, obj.IsVisible(), obj.IsOutlined(), uint32(obj.Flags))
-	case *engine.Renderable2D:
-		return fmt.Sprintf("Renderable2D{tex=%d, size=(%.1f, %.1f), z=%d, visible=%v}",
-			obj.TextureID, obj.Size.X, obj.Size.Y, obj.ZIndex, obj.IsVisible())
-	case *spatial.RigidBody:
-		return fmt.Sprintf("RigidBody{id=%q, body_id=%d, mass=%.2f}", obj.ID, obj.BodyID, obj.Mass)
-	case *spatial.InteractiveComponent:
-		return fmt.Sprintf("InteractiveComponent{name=%q, enabled=%v, hovered=%v, held=%v}",
-			obj.DisplayName, obj.Enabled, obj.Hovered, obj.Held)
-	case *spatial.FractureComponent:
-		return fmt.Sprintf("FractureComponent{health=%.1f, hands=%d, broken=%v}",
-			obj.Health, obj.RequiredCarryHands, obj.Broken)
+	case *ComponentClass:
+		return fmt.Sprintf("Class<%s (%s)>", obj.Name, obj.GoType)
+	case engine.Component:
+		return SerializeComponentJSON(obj)
 	case engine.Vector3:
 		return fmt.Sprintf("Vector3(%.3f, %.3f, %.3f)", obj.X, obj.Y, obj.Z)
 	case *engine.BaseScene:

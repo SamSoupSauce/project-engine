@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	luaComponentClassTypeName  = "ComponentClass"
 	luaTransformTypeName       = "Transform"
 	luaMeshTypeName            = "Mesh"
 	luaMeshRenderableTypeName  = "MeshRenderable"
@@ -18,12 +19,119 @@ const (
 	luaScriptComponentTypeName = "ScriptComponent"
 )
 
+// ComponentClass represents a Lua read-only component class constant (e.g., Mesh, Transform).
+type ComponentClass struct {
+	Name   string
+	GoType string
+}
+
 func (b *LuaBridge) registerComponentTypes() {
+	b.registerComponentClassGlobals()
 	b.registerTransformComponentType()
 	b.registerMeshComponentType()
 	b.registerMeshRenderableType()
 	b.registerRigidBodyType()
 	b.registerScriptComponentType()
+}
+
+func (b *LuaBridge) registerComponentClassGlobals() {
+	mt := b.L.NewTypeMetatable(luaComponentClassTypeName)
+	b.L.SetField(mt, "__index", b.L.NewFunction(func(L *lua.LState) int {
+		cc := checkComponentClass(L, 1)
+		key := L.CheckString(2)
+		switch key {
+		case "name", "Name":
+			L.Push(lua.LString(cc.Name))
+		case "go_type", "GoType":
+			L.Push(lua.LString(cc.GoType))
+		case "help", "Help":
+			L.Push(L.NewFunction(func(L2 *lua.LState) int {
+				c := checkComponentClass(L2, 1)
+				if txt, ok := FormatComponentHelp(c.Name); ok {
+					L2.Push(lua.LString(txt))
+				} else {
+					L2.Push(lua.LString(fmt.Sprintf("%s (%s)", c.Name, c.GoType)))
+				}
+				return 1
+			}))
+		default:
+			L.Push(lua.LNil)
+		}
+		return 1
+	}))
+	b.L.SetField(mt, "__newindex", b.L.NewFunction(func(L *lua.LState) int {
+		cc := checkComponentClass(L, 1)
+		L.RaiseError("component class %s is read-only", cc.Name)
+		return 0
+	}))
+	b.L.SetField(mt, "__eq", b.L.NewFunction(func(L *lua.LState) int {
+		ud1, ok1 := L.Get(1).(*lua.LUserData)
+		ud2, ok2 := L.Get(2).(*lua.LUserData)
+		if !ok1 || !ok2 {
+			L.Push(lua.LFalse)
+			return 1
+		}
+		c1, _ := ud1.Value.(*ComponentClass)
+		c2, _ := ud2.Value.(*ComponentClass)
+		L.Push(lua.LBool(c1 != nil && c2 != nil && c1.Name == c2.Name))
+		return 1
+	}))
+	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
+		cc := checkComponentClass(L, 1)
+		L.Push(lua.LString(fmt.Sprintf("Class<%s (%s)>", cc.Name, cc.GoType)))
+		return 1
+	}))
+
+	classDefs := []struct {
+		globalNames []string
+		canonName   string
+		goType      string
+	}{
+		{[]string{"Transform", "TransformComponent"}, "Transform", "*engine.TransformComponent"},
+		{[]string{"Mesh", "MeshComponent"}, "Mesh", "*engine.MeshComponent"},
+		{[]string{"MeshRenderable"}, "MeshRenderable", "*engine.MeshRenderable"},
+		{[]string{"Renderable"}, "Renderable", "*engine.Renderable"},
+		{[]string{"Renderable2D"}, "Renderable2D", "*engine.Renderable2D"},
+		{[]string{"RigidBody"}, "RigidBody", "*spatial.RigidBody"},
+		{[]string{"InteractiveComponent", "Interactive"}, "InteractiveComponent", "*spatial.InteractiveComponent"},
+		{[]string{"FractureComponent", "Fracture"}, "FractureComponent", "*spatial.FractureComponent"},
+		{[]string{"ScriptComponent"}, "ScriptComponent", "*luabridge.ScriptComponent"},
+	}
+
+	for _, def := range classDefs {
+		cc := &ComponentClass{Name: def.canonName, GoType: def.goType}
+		ud := b.L.NewUserData()
+		ud.Value = cc
+		b.L.SetMetatable(ud, mt)
+		for _, gName := range def.globalNames {
+			b.L.SetGlobal(gName, ud)
+		}
+	}
+}
+
+func checkComponentClass(L *lua.LState, idx int) *ComponentClass {
+	ud := L.CheckUserData(idx)
+	if cc, ok := ud.Value.(*ComponentClass); ok && cc != nil {
+		return cc
+	}
+	L.ArgError(idx, "ComponentClass expected")
+	return nil
+}
+
+func resolveComponentArg(L *lua.LState, idx int) string {
+	val := L.Get(idx)
+	if ud, ok := val.(*lua.LUserData); ok && ud != nil {
+		if cc, ok := ud.Value.(*ComponentClass); ok && cc != nil {
+			return cc.Name
+		}
+		L.ArgError(idx, "component class constant or type name string expected")
+		return ""
+	}
+	if s, ok := val.(lua.LString); ok {
+		return resolveComponentAlias(string(s))
+	}
+	L.ArgError(idx, "component class constant or type name string expected")
+	return ""
 }
 
 func (b *LuaBridge) registerTransformComponentType() {
@@ -91,11 +199,7 @@ func (b *LuaBridge) registerTransformComponentType() {
 
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		tc := checkTransformComponent(L, 1)
-		p := tc.GetPosition()
-		r := tc.GetRotation()
-		s := tc.GetScale()
-		L.Push(lua.LString(fmt.Sprintf("Transform{pos=(%.2f, %.2f, %.2f), rot=(%.2f, %.2f, %.2f), scale=(%.2f, %.2f, %.2f)}",
-			p.X, p.Y, p.Z, r.X, r.Y, r.Z, s.X, s.Y, s.Z)))
+		L.Push(lua.LString(SerializeComponentJSON(tc)))
 		return 1
 	}))
 }
@@ -200,7 +304,7 @@ func (b *LuaBridge) registerRigidBodyType() {
 
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		rb := checkRigidBody(L, 1)
-		L.Push(lua.LString(fmt.Sprintf("RigidBody{id=%q, body_id=%d, mass=%.2f}", rb.ID, rb.BodyID, rb.Mass)))
+		L.Push(lua.LString(SerializeComponentJSON(rb)))
 		return 1
 	}))
 }
@@ -470,7 +574,7 @@ func (b *LuaBridge) registerMeshComponentType() {
 	}))
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		mc := checkMeshComponent(L, 1)
-		L.Push(lua.LString(fmt.Sprintf("Mesh{path=%q, tris=%d}", mc.FilePath, mc.TriangleCount())))
+		L.Push(lua.LString(SerializeComponentJSON(mc)))
 		return 1
 	}))
 }
@@ -547,8 +651,7 @@ func (b *LuaBridge) registerMeshRenderableType() {
 	}))
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		mr := checkMeshRenderable(L, 1)
-		L.Push(lua.LString(fmt.Sprintf("MeshRenderable{visible=%v, wireframe=%v, valid=%v}",
-			mr.Visible, mr.Wireframe, mr.ValidateConstraint() == nil)))
+		L.Push(lua.LString(SerializeComponentJSON(mr)))
 		return 1
 	}))
 }

@@ -107,22 +107,52 @@ func TestLuaGenericComponentAccessAndRenderableConstraint(t *testing.T) {
 		t.Fatalf("expected 2 components in GetComponents(), got %q", count)
 	}
 
-	// 3. MeshRenderable enforces both Transform and MeshComponent constraints; Mesh & MeshRenderable help work.
-	meshErr := console.ExecuteCommand(`selected:AddComponent("MeshRenderable")`)
+	// 3. MeshRenderable enforces both Transform and MeshComponent constraints; Mesh & MeshRenderable class constants + help work.
+	meshErr := console.ExecuteCommand(`selected:AddComponent(MeshRenderable)`)
 	if !strings.Contains(meshErr, "Error:") {
-		t.Fatalf("expected AddComponent('MeshRenderable') error without MeshComponent, got %q", meshErr)
+		t.Fatalf("expected AddComponent(MeshRenderable) error without MeshComponent, got %q", meshErr)
 	}
-	meshHelp := console.ExecuteCommand(`help("Mesh")`)
-	meshRendHelp := console.ExecuteCommand(`help("MeshRenderable")`)
+	meshHelp := console.ExecuteCommand(`help(Mesh)`)
+	transformClassHelp := console.ExecuteCommand(`help(Transform)`)
+	meshRendHelp := console.ExecuteCommand(`help(MeshRenderable)`)
 	if !strings.Contains(meshHelp, "Component Help: Mesh (*engine.MeshComponent)") ||
+		!strings.Contains(meshHelp, "GetTriangleCount()") ||
+		!strings.Contains(transformClassHelp, "Component Help: Transform (*engine.TransformComponent)") ||
 		!strings.Contains(meshRendHelp, "Component Help: MeshRenderable (*engine.MeshRenderable)") {
-		t.Fatalf("expected help output for Mesh & MeshRenderable, got:\n%s\n%s", meshHelp, meshRendHelp)
+		t.Fatalf("expected class-constant help output, got:\n%s\n%s\n%s", meshHelp, transformClassHelp, meshRendHelp)
 	}
 
-	// 4. Removing Transform violates Renderable constraint and blocks adding another Renderable.
-	console.ExecuteCommand(`selected:RemoveComponent("Renderable"); selected:RemoveComponent("Transform")`)
-	errOut := console.ExecuteCommand(`selected:AddComponent("Renderable", "mesh", "mat")`)
+	// Read-only constant check: mutating class constant raises error in Lua.
+	roRes := console.ExecuteCommand(`return pcall(function() Mesh.name = "hack" end)`)
+	if !strings.HasPrefix(roRes, "false") {
+		t.Fatalf("expected ComponentClass constant to reject mutation, got %q", roRes)
+	}
+
+	// 4. selected:GetComponent(<Class>) returns JSON dump if present or Nil if missing.
+	trJSON := console.ExecuteCommand(`selected:GetComponent(Transform)`)
+	if !strings.Contains(trJSON, `"name": "Transform"`) || !strings.Contains(trJSON, `"type": "*engine.TransformComponent"`) {
+		t.Fatalf("expected JSON dump from selected:GetComponent(Transform), got:\n%s", trJSON)
+	}
+	missingMesh := console.ExecuteCommand(`selected:GetComponent(Mesh)`)
+	if missingMesh != "Nil" {
+		t.Fatalf("expected Nil when selected has no Mesh component, got %q", missingMesh)
+	}
+	console.ExecuteCommand(`selected:AddComponent(Mesh, "../../assets/models/props/rainbow_cube.gltf")`)
+	if console.ExecuteCommand(`return selected:HasComponent(Mesh)`) != "true" {
+		t.Fatalf("expected HasComponent(Mesh) == true after AddComponent(Mesh, ...)")
+	}
+	meshJSON := console.ExecuteCommand(`selected:GetComponent(Mesh)`)
+	if !strings.Contains(meshJSON, `"name": "Mesh"`) ||
+		!strings.Contains(meshJSON, `"type": "*engine.MeshComponent"`) ||
+		!strings.Contains(meshJSON, `"triangles": 12`) ||
+		!strings.Contains(meshJSON, `"loaded": true`) {
+		t.Fatalf("expected Mesh component JSON dump from selected:GetComponent(Mesh), got:\n%s", meshJSON)
+	}
+
+	// 5. Removing Transform violates Renderable constraint and blocks adding another Renderable.
+	console.ExecuteCommand(`selected:RemoveComponent(Renderable); selected:RemoveComponent(Transform)`)
+	errOut := console.ExecuteCommand(`selected:AddComponent(Renderable, "mesh", "mat")`)
 	if !strings.Contains(errOut, "Error:") || !strings.Contains(errOut, "Transform") {
-		t.Fatalf("expected AddComponent('Renderable') error when Transform missing, got %q", errOut)
+		t.Fatalf("expected AddComponent(Renderable) error when Transform missing, got %q", errOut)
 	}
 }
