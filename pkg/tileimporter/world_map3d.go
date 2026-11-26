@@ -498,3 +498,67 @@ func (m3d *WorldMap3D) GetSolidBoxes() []rl.BoundingBox {
 	}
 	return boxes
 }
+
+// ExportStaticColliderBounds exports all static floor slabs, corner top/bottom seams,
+// solid wall segments, stair step boxes, and solid tile bounds as [min, max] XYZ pairs
+// compatible with engine/spatial.MapColliderSource without introducing package coupling.
+func (m3d *WorldMap3D) ExportStaticColliderBounds() [][2][3]float32 {
+	if m3d == nil {
+		return nil
+	}
+	var out [][2][3]float32
+	appendBox := func(minX, minY, minZ, maxX, maxY, maxZ float32) {
+		out = append(out, [2][3]float32{
+			{minX, minY, minZ},
+			{maxX, maxY, maxZ},
+		})
+	}
+	appendCenterSize := func(pos, size rl.Vector3) {
+		if size.X <= 0 || size.Y <= 0 || size.Z <= 0 {
+			return
+		}
+		hx, hy, hz := size.X*0.5, size.Y*0.5, size.Z*0.5
+		appendBox(pos.X-hx, pos.Y-hy, pos.Z-hz, pos.X+hx, pos.Y+hy, pos.Z+hz)
+	}
+
+	for _, tile := range m3d.Tiles {
+		if tile.HasBottomCollision {
+			b := tile.BottomCollisionBox
+			appendBox(b.Min.X, b.Min.Y, b.Min.Z, b.Max.X, b.Max.Y, b.Max.Z)
+		} else if tile.HasFlooring {
+			appendCenterSize(tile.FloorPosition, tile.FloorSize)
+		}
+
+		if tile.HasTopCollision {
+			b := tile.TopCollisionBox
+			appendBox(b.Min.X, b.Min.Y, b.Min.Z, b.Max.X, b.Max.Y, b.Max.Z)
+		}
+
+		if tile.Type == TileStairs || tile.IsStairs {
+			if len(tile.Steps) > 0 {
+				for _, step := range tile.Steps {
+					appendCenterSize(step.Position, step.Size)
+				}
+			} else {
+				for _, sb := range tile.StepBoxes {
+					appendBox(sb.Min.X, sb.Min.Y, sb.Min.Z, sb.Max.X, sb.Max.Y, sb.Max.Z)
+				}
+			}
+			continue
+		}
+
+		if tile.IsSolid {
+			if len(tile.WallSegments) > 0 {
+				for _, ws := range tile.WallSegments {
+					if ws.IsSolid {
+						appendCenterSize(ws.Position, ws.Size)
+					}
+				}
+			} else if !tile.HasFlooring {
+				bb := tile.GetBoundingBox()
+				appendBox(bb.Min.X, bb.Min.Y, bb.Min.Z, bb.Max.X, bb.Max.Y, bb.Max.Z)
+			}
+		}
+	}
+	return out
+}
