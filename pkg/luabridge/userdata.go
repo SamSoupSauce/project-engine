@@ -108,7 +108,7 @@ func (b *LuaBridge) registerGameObjectType() {
 
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		obj := checkGameObject(L, 1)
-		L.Push(lua.LString(fmt.Sprintf("GameObject(%s:%s)", obj.ID, obj.Name)))
+		L.Push(lua.LString(SerializeGameObjectJSON(obj)))
 		return 1
 	}))
 }

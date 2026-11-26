@@ -78,15 +78,18 @@ func NewConsole(bridge *LuaBridge) *Console {
 	return c
 }
 
-// Print appends a new message line to the console safely across goroutines.
+// Print appends message lines (splitting multi-line text) to the console safely across goroutines.
 func (c *Console) Print(text string, lineType LineType) {
 	ts := time.Now().Format("15:04:05")
+	parts := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	c.mu.Lock()
-	c.Output = append(c.Output, ConsoleLine{
-		Text:      text,
-		Type:      lineType,
-		Timestamp: ts,
-	})
+	for _, line := range parts {
+		c.Output = append(c.Output, ConsoleLine{
+			Text:      line,
+			Type:      lineType,
+			Timestamp: ts,
+		})
+	}
 	if len(c.Output) > c.MaxLines && c.MaxLines > 0 {
 		c.Output = c.Output[len(c.Output)-c.MaxLines:]
 	}

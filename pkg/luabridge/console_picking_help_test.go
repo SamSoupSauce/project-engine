@@ -1,6 +1,7 @@
 package luabridge
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -129,5 +130,66 @@ func TestConsoleObjectPickingAndLuaSelection(t *testing.T) {
 	pickedName := console.ExecuteCommand(`pick("RainbowCube"); return picked():GetID()`)
 	if pickedName != "rainbow_cube" {
 		t.Fatalf("expected pick('RainbowCube') to bind picked(), got %q", pickedName)
+	}
+}
+
+func TestConsoleREPLSerializationJSONAndNil(t *testing.T) {
+	bridge := NewLuaBridge()
+	defer bridge.Close()
+	console := NewConsole(bridge)
+
+	cube := engine.NewGameObject("rainbow_cube", "RainbowCube")
+	cube.Transform.Position = engine.NewVector3(1.5, 2.5, -3.5)
+	cube.AddComponent(engine.NewRenderable("cube_mesh", "rainbow_mat"))
+	bridge.RegisterGameObject("cube", cube)
+	console.PickObject(cube)
+
+	// 1. Bare expression `selected` returns indented JSON (not "OK" or "userdata: 0x...").
+	outSelected := console.ExecuteCommand("selected")
+	if outSelected == "OK" || strings.Contains(outSelected, "userdata:") {
+		t.Fatalf("expected serialized JSON for `selected`, got %q", outSelected)
+	}
+	if !strings.Contains(outSelected, "\n  ") {
+		t.Fatalf("expected pretty-printed indented JSON for GameObject, got %q", outSelected)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(outSelected), &decoded); err != nil {
+		t.Fatalf("expected valid JSON from `selected`, err=%v raw=%q", err, outSelected)
+	}
+	if decoded["id"] != "rainbow_cube" || decoded["name"] != "RainbowCube" {
+		t.Fatalf("unexpected decoded JSON payload: %+v", decoded)
+	}
+
+	// 2. print(selected) also prints pretty JSON lines cleanly.
+	console.ClearOutput()
+	console.ExecuteCommand("print(selected)")
+	lines := console.GetOutputLines()
+	var sawNameField bool
+	for _, l := range lines {
+		if strings.Contains(l.Text, `"name": "RainbowCube"`) {
+			sawNameField = true
+		}
+	}
+	if !sawNameField {
+		t.Fatalf("expected print(selected) to pretty-print GameObject JSON to console, got %+v", lines)
+	}
+
+	// 3. Lua table serialization.
+	tblOut := console.ExecuteCommand("({ alpha = 10, beta = 'hi' })")
+	if !strings.Contains(tblOut, "alpha = 10") || !strings.Contains(tblOut, "beta = hi") {
+		t.Fatalf("expected formatted Lua table serialization, got %q", tblOut)
+	}
+
+	// 4. Explicit nil & void statements return/print "Nil" instead of "OK".
+	for _, expr := range []string{"nil", "return nil", "local _tmp = 42", "selected:SetPosition(4, 5, 6)"} {
+		console.ClearOutput()
+		res := console.ExecuteCommand(expr)
+		if res != "Nil" {
+			t.Fatalf("expected `Nil` for %q, got %q", expr, res)
+		}
+		outLines := console.GetOutputLines()
+		if len(outLines) == 0 || outLines[len(outLines)-1].Text != "Nil" {
+			t.Fatalf("expected console last line `Nil` for %q, got %+v", expr, outLines)
+		}
 	}
 }

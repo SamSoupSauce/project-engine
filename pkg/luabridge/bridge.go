@@ -208,29 +208,47 @@ func (b *LuaBridge) executeWithStreamFlag(input string) (string, bool, error) {
 		return out, len(capture) > 0, err
 	}
 
-	// 3. Fallback: Evaluate as Lua script
-	err := b.L.DoString(trimmed)
+	// 3. Fallback: Evaluate as Lua expression first (REPL style `return <expr>`),
+	// falling back to statement execution when not a pure expression.
+	baseTop := b.L.GetTop()
+	var fn *lua.LFunction
+	var err error
+
+	if !strings.HasPrefix(trimmed, "return ") && trimmed != "return" {
+		if compiled, compErr := b.L.LoadString("return " + trimmed); compErr == nil {
+			fn = compiled
+		}
+	}
+	if fn != nil {
+		b.L.Push(fn)
+		err = b.L.PCall(0, lua.MultRet, nil)
+	} else {
+		err = b.L.DoString(trimmed)
+	}
 	if err != nil {
+		b.L.SetTop(baseTop)
 		return "", len(capture) > 0, err
 	}
 
-	// Fetch top of stack if a value was returned
 	top := b.L.GetTop()
-	if top > 0 {
-		val := b.L.Get(top)
-		b.L.Pop(1)
-		if val != lua.LNil {
-			res := val.String()
-			b.outputLogs = append(b.outputLogs, res)
-			return res, false, nil
+	if top > baseTop {
+		parts := make([]string, 0, top-baseTop)
+		for i := baseTop + 1; i <= top; i++ {
+			parts = append(parts, SerializeLuaValue(b.L, b.L.Get(i)))
 		}
+		b.L.SetTop(baseTop)
+		res := strings.Join(parts, "\n")
+		for _, line := range strings.Split(res, "\n") {
+			b.outputLogs = append(b.outputLogs, line)
+		}
+		return res, false, nil
 	}
 
 	if len(capture) > 0 {
 		return strings.Join(capture, "\n"), true, nil
 	}
 
-	return "OK", false, nil
+	return "Nil", false, nil
 }
 
 // FormatHelp builds readable documentation lines for commands and built-in console/Lua helpers.
