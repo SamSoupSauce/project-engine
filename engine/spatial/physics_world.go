@@ -116,6 +116,7 @@ type PhysicsWorld struct {
 	staticBodies []uint32
 	characters   []*CharacterController
 	syncTargets  map[uint32]*engine.GameObject
+	activeGrab   *PhysicsGrab
 
 	mu     sync.Mutex
 	closed bool
@@ -228,6 +229,9 @@ func (w *PhysicsWorld) Destroy() {
 	w.bodiesByID = nil
 	w.syncTargets = nil
 
+	grab := w.activeGrab
+	w.activeGrab = nil
+
 	staticIDs := make([]uint32, len(w.staticBodies))
 	copy(staticIDs, w.staticBodies)
 	w.staticBodies = nil
@@ -239,6 +243,21 @@ func (w *PhysicsWorld) Destroy() {
 	w.bodyIface = nil
 	w.jobSystem = nil
 	w.mu.Unlock()
+
+	if grab != nil {
+		if grab.constraint != nil && sys != nil {
+			C.JPH_PhysicsSystem_RemoveConstraint(sys, grab.constraint)
+			C.JPH_Constraint_Destroy(grab.constraint)
+			grab.constraint = nil
+		}
+		if iface != nil && grab.anchorBodyID != InvalidBodyID {
+			if bool(C.JPH_BodyInterface_IsAdded(iface, C.JPH_BodyID(grab.anchorBodyID))) {
+				C.JPH_BodyInterface_RemoveAndDestroyBody(iface, C.JPH_BodyID(grab.anchorBodyID))
+			}
+			grab.anchorBodyID = InvalidBodyID
+		}
+		grab.heldBody = nil
+	}
 
 	for _, c := range chars {
 		c.destroyNative()
@@ -317,6 +336,9 @@ func (w *PhysicsWorld) StepSimulation(dt float32) int {
 
 		for _, c := range w.characters {
 			c.stepLocked(w.system, fixed)
+		}
+		if w.activeGrab != nil {
+			w.activeGrab.stepLocked(fixed)
 		}
 
 		C.JPH_PhysicsSystem_Update(w.system, C.float(fixed), 1, w.jobSystem)

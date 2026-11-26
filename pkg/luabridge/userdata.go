@@ -6,6 +6,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
+	"github.com/SamSoupSauce/project-engine/engine/spatial"
 )
 
 const (
@@ -20,6 +21,7 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerRenderable2DType()
 	b.registerRenderableType()
 	b.registerRendererType()
+	b.registerInteractiveType()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -271,6 +273,20 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			r.ScriptName = scriptName
 			obj.AddComponent(r)
 			pushRenderable(L, r)
+			return 1
+		},
+		"GetInteractive": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			pushInteractive(L, spatial.FindInteractiveComponent(obj))
+			return 1
+		},
+		"AddInteractive": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			name := L.OptString(2, obj.Name)
+			isDynamic := L.OptBool(3, false)
+			ic := spatial.NewInteractiveComponent(name, isDynamic)
+			obj.AddComponent(ic)
+			pushInteractive(L, ic)
 			return 1
 		},
 		"GetRenderable2D": func(L *lua.LState) int {
