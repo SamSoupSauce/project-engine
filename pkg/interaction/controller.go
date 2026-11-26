@@ -45,6 +45,8 @@ type InteractionState struct {
 	HoveredComp         *spatial.InteractiveComponent
 	ActiveHeldProp      *engine.GameObject
 	ActiveHeldBody      *spatial.RigidBody
+	CarryHands          int     // 1 for normal/light props, 2 for heavy props
+	CameraLookDamping   float32 // Look speed multiplier (1.0 normal, <= 0.25 for heavy props)
 	PressActive         bool
 	PressStartTime      float64
 	PressedTarget       *engine.GameObject
@@ -340,10 +342,66 @@ func (c *Controller) GrabEntity(target *engine.GameObject, cam CameraPose) error
 	comp.SetHovered(false)
 	c.State.ActiveHeldProp = target
 	c.State.ActiveHeldBody = rb
+	c.State.CarryHands = 1
+	c.State.CameraLookDamping = 1.0
+	if fc := spatial.FindFractureComponent(target); fc != nil {
+		if fc.RequiredCarryHands >= 2 {
+			c.State.CarryHands = 2
+		}
+		if fc.CameraLookDamping > 0 && fc.CameraLookDamping < 1.0 {
+			c.State.CameraLookDamping = fc.CameraLookDamping
+		}
+	}
 	c.State.HoveredEntity = nil
 	c.State.HoveredComp = nil
 	c.CloseMenu()
 	return nil
+}
+
+// ApplyCameraLookDelta scales raw look yaw/pitch deltas by active heavy-prop rotational damping.
+func (c *Controller) ApplyCameraLookDelta(dx, dy float32) (float32, float32) {
+	if c == nil || c.State.ActiveHeldProp == nil {
+		return dx, dy
+	}
+	d := c.State.CameraLookDamping
+	if d <= 0 || d > 1.0 {
+		d = 1.0
+	}
+	return dx * d, dy * d
+}
+
+// PullBreakableJoint pulls a jointed drawer/door toward the player arm socket; if it snaps,
+// it transitions smoothly into ActiveHeldProp without dropping the detached part.
+func (c *Controller) PullBreakableJoint(joint *spatial.BreakableJoint, pullDir engine.Vector3, pullForce float32, cam CameraPose, dt float32) spatial.JointBreakEvent {
+	if c == nil || joint == nil || c.World == nil {
+		return spatial.JointBreakEvent{}
+	}
+	var snappedEv spatial.JointBreakEvent
+	prevOnBreak := joint.OnBreak
+	joint.OnBreak = func(ev spatial.JointBreakEvent) {
+		snappedEv = ev
+		if prevOnBreak != nil {
+			prevOnBreak(ev)
+		}
+	}
+	joint.SetArmSocket(true, c.carryTargetPos(cam))
+	joint.ApplyPullForce(pullDir, pullForce, dt)
+	c.World.StepSimulation(dt)
+	joint.OnBreak = prevOnBreak
+
+	if snappedEv.AttachedToArmSocket && joint.ChildBody != nil {
+		c.State.ActiveHeldBody = joint.ChildBody
+		c.State.ActiveHeldProp = joint.ChildBody.Owner
+		c.State.CarryHands = 1
+		c.State.CameraLookDamping = 1.0
+		if joint.ChildBody.Owner != nil {
+			if ic := spatial.FindInteractiveComponent(joint.ChildBody.Owner); ic != nil {
+				ic.Held = true
+				ic.SetHovered(false)
+			}
+		}
+	}
+	return snappedEv
 }
 
 // ThrowHeldProp releases the held dynamic prop constraint and launches it along forward.
@@ -364,6 +422,8 @@ func (c *Controller) ThrowHeldProp(forward engine.Vector3) (*engine.GameObject, 
 	}
 	c.State.ActiveHeldProp = nil
 	c.State.ActiveHeldBody = nil
+	c.State.CarryHands = 0
+	c.State.CameraLookDamping = 1.0
 	return held, nil
 }
 
@@ -381,6 +441,8 @@ func (c *Controller) DropHeldProp() *engine.GameObject {
 	}
 	c.State.ActiveHeldProp = nil
 	c.State.ActiveHeldBody = nil
+	c.State.CarryHands = 0
+	c.State.CameraLookDamping = 1.0
 	return held
 }
 

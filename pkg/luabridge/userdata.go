@@ -22,6 +22,7 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerRenderableType()
 	b.registerRendererType()
 	b.registerInteractiveType()
+	b.registerHazardTypes()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -287,6 +288,21 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			ic := spatial.NewInteractiveComponent(name, isDynamic)
 			obj.AddComponent(ic)
 			pushInteractive(L, ic)
+			return 1
+		},
+		"GetFracture": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			pushFracture(L, spatial.FindFractureComponent(obj))
+			return 1
+		},
+		"AddFracture": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			mode := spatial.FractureMode(L.OptInt(2, int(spatial.FractureSplinter)))
+			tier := spatial.PropIntegrityTier(L.OptInt(3, int(spatial.IntegrityStandard)))
+			hp := float32(L.OptNumber(4, 15.0))
+			fc := spatial.NewFractureComponent(mode, tier, hp)
+			obj.AddComponent(fc)
+			pushFracture(L, fc)
 			return 1
 		},
 		"GetRenderable2D": func(L *lua.LState) int {
