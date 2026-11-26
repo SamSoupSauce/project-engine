@@ -24,6 +24,7 @@ func (f RenderFlags) Has(flag RenderFlags) bool {
 type Renderable struct {
 	MeshID     string      // GPU buffer or primitive mesh handle (e.g. "cube", "quad", "mesh_42")
 	MaterialID string      // Shader/pipeline state handle (e.g. "default", "unlit", "siding")
+	ScriptName string      // Optional script prefix override for <ScriptName>_render(self, gfx)
 	Flags      RenderFlags // Pipeline bitmask
 	Color      Color       // Surface base tint
 	WireColor  Color       // Wireframe contour color
@@ -56,6 +57,20 @@ func (r *Renderable) Update(dt float32) {
 // Destroy cleans up component resources.
 func (r *Renderable) Destroy() {
 	r.Owner = nil
+}
+
+// SetVisible toggles FlagVisible on this Renderable.
+func (r *Renderable) SetVisible(visible bool) {
+	if visible {
+		r.Flags |= FlagVisible
+	} else {
+		r.Flags &^= FlagVisible
+	}
+}
+
+// IsVisible reports whether FlagVisible is enabled.
+func (r *Renderable) IsVisible() bool {
+	return r.Flags.Has(FlagVisible)
 }
 
 // DrawCommand is a flat, self-contained draw instruction produced during the camera extraction pass.
@@ -147,5 +162,51 @@ func (b *RenderPassBuffer) extractNode(node *GameObject, inheritedFlags RenderFl
 	// Recurse into children cascading the effective state
 	for _, child := range node.Children {
 		b.extractNode(child, effectiveFlags, effectiveVisible)
+	}
+}
+
+// DispatchRenderFromHierarchy traverses a GameObject tree, cascades Renderable
+// visibility flags, and invokes DispatchRender(gfx, r.ScriptName) on every active,
+// spawned, visible GameObject that has an attached Renderable component.
+func DispatchRenderFromHierarchy(root *GameObject, gfx *Renderer) {
+	if root == nil || !root.Active || gfx == nil {
+		return
+	}
+	dispatchRenderNode(root, true, gfx)
+}
+
+func dispatchRenderNode(node *GameObject, parentVisible bool, gfx *Renderer) {
+	if node == nil || !node.Active {
+		return
+	}
+
+	effectiveVisible := parentVisible
+
+	node.mu.RLock()
+	var renderable *Renderable
+	for _, c := range node.Components {
+		if r, ok := c.(*Renderable); ok {
+			renderable = r
+			break
+		}
+	}
+	children := make([]*GameObject, len(node.Children))
+	copy(children, node.Children)
+	node.mu.RUnlock()
+
+	if renderable != nil {
+		if renderable.Flags.Has(FlagOverrideParent) {
+			effectiveVisible = renderable.Flags.Has(FlagVisible)
+		} else {
+			effectiveVisible = parentVisible && renderable.Flags.Has(FlagVisible)
+		}
+
+		if effectiveVisible && node.IsSpawned() {
+			node.DispatchRender(gfx, renderable.ScriptName)
+		}
+	}
+
+	for _, child := range children {
+		dispatchRenderNode(child, effectiveVisible, gfx)
 	}
 }

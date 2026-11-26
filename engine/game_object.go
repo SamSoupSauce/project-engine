@@ -280,3 +280,27 @@ func (go_ *GameObject) DispatchDespawn(sender *GameObject, data any) {
 		s.OnDespawn(sender, data)
 	})
 }
+
+// DispatchRender triggers OnRenderWithScriptName / OnRender on all attached RenderLifecycle
+// components when this GameObject is active and spawned.
+func (go_ *GameObject) DispatchRender(gfx *Renderer, scriptName string) {
+	if gfx == nil || !go_.Active || !go_.IsSpawned() {
+		return
+	}
+	go_.mu.RLock()
+	targets := make([]RenderLifecycle, 0, len(go_.Components))
+	for _, c := range go_.Components {
+		if rl, ok := c.(RenderLifecycle); ok {
+			targets = append(targets, rl)
+		}
+	}
+	go_.mu.RUnlock()
+
+	for _, rl := range targets {
+		if nrl, ok := rl.(NamedRenderLifecycle); ok {
+			nrl.OnRenderWithScriptName(gfx, scriptName)
+		} else {
+			rl.OnRender(gfx)
+		}
+	}
+}
