@@ -58,6 +58,7 @@ jobs:
     env:
       CGO_ENABLED: "1"
       CGO_LDFLAGS_ALLOW: ".*"
+      JOLTC_SHA: "b6057a04ce0bf01997c0cd8f6b34ca9a87f405d2"
 
     steps:
       - name: Checkout repository
@@ -85,11 +86,20 @@ jobs:
         if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          if (Test-Path "C:\msys64\mingw64\bin") {
+            $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+          }
+          gcc --version
           $ver = "${{ steps.ver.outputs.version }}"
           go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -race -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\build.ps1 -Package -Version $ver
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\bin\project-engine.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Path release-artifacts -Force | Out-Null
           Compress-Archive -Path "dist\project-engine\*" -DestinationPath "release-artifacts\project-engine-$ver-windows-amd64.zip" -Force
 
@@ -105,10 +115,8 @@ jobs:
           NATIVE_DIR="${RUNNER_TEMP}/native-windows-arm64"
           mkdir -p "${NATIVE_DIR}/lib"
 
-          # Ensure MSYS2 make is available in PATH for LuaJIT build
           export PATH="/c/msys64/usr/bin:${PATH}"
 
-          # Fetch llvm-mingw (ucrt x86_64 host -> aarch64-w64-mingw32 target)
           MINGW_URL=$(curl -fsSL https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest \
             | grep -oE 'https://[^"]+ucrt-x86_64\.zip' | head -n1)
           curl -fsSL "$MINGW_URL" -o "${RUNNER_TEMP}/llvm-mingw.zip"
@@ -116,8 +124,11 @@ jobs:
           MINGW_BIN=$(find "${RUNNER_TEMP}/llvm-mingw-extract" -maxdepth 2 -type d -name bin | head -n1)
           export PATH="${MINGW_BIN}:${PATH}"
 
-          # 1. Build static JoltC + JoltPhysics for Windows ARM64
-          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          # 1. Build static JoltC + JoltPhysics (pinned to Jolt v5.7.0 / JPH_Init ABI)
+          git init "${RUNNER_TEMP}/joltc"
+          git -C "${RUNNER_TEMP}/joltc" remote add origin https://github.com/amerkoleci/joltc.git
+          git -C "${RUNNER_TEMP}/joltc" fetch --depth 1 origin "${JOLTC_SHA}"
+          git -C "${RUNNER_TEMP}/joltc" checkout FETCH_HEAD
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
             -DCMAKE_SYSTEM_NAME=Windows \
             -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
@@ -150,7 +161,7 @@ jobs:
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
           test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
 
-          # 3. Build cimgui.a for Windows ARM64 (cimgui-go only prebundles windows/x64)
+          # 3. Build cimgui.a for Windows ARM64
           go mod download
           CIMGUI_MOD=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
           cp -R "${CIMGUI_MOD}" "${RUNNER_TEMP}/cimgui-src"
@@ -185,14 +196,18 @@ jobs:
       - name: Install system packages (Ubuntu LTS)
         if: matrix.goos == 'linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            sudo apt-get update && break
+            echo "apt-get update attempt ${attempt} failed, retrying..."
+            sleep 5
+          done
+          sudo apt-get install -y --fix-missing \
             build-essential cmake ninja-build pkg-config \
-            libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev \
-            libxxf86vm-dev libxkbcommon-dev libwayland-dev \
-            libluajit-5.1-dev
+            libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev \
+            libxxf86vm-dev libxkbcommon-dev libwayland-dev
 
-      - name: Build JoltC (and cimgui on ARM64), test & package (Ubuntu LTS)
+      - name: Build JoltC & LuaJIT (and cimgui on ARM64), test & package (Ubuntu LTS)
         if: matrix.goos == 'linux'
         run: |
           set -euo pipefail
@@ -201,12 +216,15 @@ jobs:
           NATIVE_DIR="${RUNNER_TEMP}/native-linux-${ARCH}"
           mkdir -p "${NATIVE_DIR}/lib"
 
-          # 1. Build static JoltC + JoltPhysics and merge into libjoltc.a
+          # 1. Build static JoltC + JoltPhysics (pinned) and merge into libjoltc.a
           SIMD_FLAGS=""
           if [ "${ARCH}" = "arm64" ]; then
             SIMD_FLAGS="-DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF -DUSE_AVX=OFF -DUSE_AVX2=OFF -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF -DUSE_F16C=OFF -DUSE_FMADD=OFF"
           fi
-          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          git init "${RUNNER_TEMP}/joltc"
+          git -C "${RUNNER_TEMP}/joltc" remote add origin https://github.com/amerkoleci/joltc.git
+          git -C "${RUNNER_TEMP}/joltc" fetch --depth 1 origin "${JOLTC_SHA}"
+          git -C "${RUNNER_TEMP}/joltc" checkout FETCH_HEAD
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DJPH_BUILD_SHARED=OFF \
@@ -224,9 +242,15 @@ jobs:
           ranlib "${NATIVE_DIR}/lib/libjoltc.a"
           test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
+          # 2. Build static LuaJIT 2.1 for self-contained Linux binaries
+          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          make -C "${RUNNER_TEMP}/luajit/src" -j4 BUILDMODE=static amalg
+          cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
+          test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
+
           EXTRA_CGO_LDFLAGS="-L${NATIVE_DIR}/lib"
 
-          # 2. On linux/arm64, build cimgui.a (cimgui-go only prebundles linux/x64)
+          # 3. On linux/arm64, build cimgui.a (cimgui-go only prebundles linux/x64)
           if [ "${ARCH}" = "arm64" ]; then
             go mod download
             CIMGUI_MOD=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
@@ -273,8 +297,11 @@ jobs:
           NATIVE_DIR="${RUNNER_TEMP}/native-darwin-${ARCH}"
           mkdir -p "${NATIVE_DIR}/lib"
 
-          # 1. Build static JoltC + JoltPhysics and merge into libjoltc.a
-          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          # 1. Build static JoltC + JoltPhysics (pinned) and merge into libjoltc.a
+          git init "${RUNNER_TEMP}/joltc"
+          git -C "${RUNNER_TEMP}/joltc" remote add origin https://github.com/amerkoleci/joltc.git
+          git -C "${RUNNER_TEMP}/joltc" fetch --depth 1 origin "${JOLTC_SHA}"
+          git -C "${RUNNER_TEMP}/joltc" checkout FETCH_HEAD
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_SYSTEM_PROCESSOR="${OSX_ARCH}" \
