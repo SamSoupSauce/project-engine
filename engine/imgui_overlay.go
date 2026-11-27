@@ -21,6 +21,7 @@ type ImGuiOverlay struct {
 
 	Console      *DebugConsoleWindow
 	ScriptEditor *ScriptEditorWindow
+	PrefabEditor *PrefabEditorWindow
 	ShowDemo     bool
 	ShowMetrics  bool
 
@@ -154,6 +155,15 @@ func (o *ImGuiOverlay) SetScriptEditor(backend ScriptEditorBackend) {
 	o.ScriptEditor = NewScriptEditorWindow(backend)
 }
 
+// SetPrefabEditor attaches a PrefabEditorWindow backed by backend to the overlay.
+func (o *ImGuiOverlay) SetPrefabEditor(backend PrefabEditorBackend) {
+	if backend == nil {
+		o.PrefabEditor = nil
+		return
+	}
+	o.PrefabEditor = NewPrefabEditorWindow(backend)
+}
+
 // NewFrame starts a new Dear ImGui frame across OpenGL 3, GLFW, and ImGui core.
 func (o *ImGuiOverlay) NewFrame() {
 	if !o.initialized {
@@ -220,6 +230,10 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 
 	if o.ScriptEditor != nil {
 		o.ScriptEditor.Draw()
+	}
+
+	if o.PrefabEditor != nil {
+		o.PrefabEditor.Draw()
 	}
 
 	if o.DrawUI != nil {

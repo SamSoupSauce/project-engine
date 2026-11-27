@@ -48,6 +48,13 @@ type DebugConsolePicker interface {
 	ClearPicked()
 }
 
+// DebugConsolePrefabUI is an optional interface implemented by backends supporting
+// toggling the Prefab Manager/Editor window from the console toolbar.
+type DebugConsolePrefabUI interface {
+	IsPrefabEditorOpen() bool
+	SetPrefabEditorOpen(open bool)
+}
+
 // DebugConsoleWindow renders a toggleable Dear ImGui developer console backed by
 // a DebugConsoleBackend (such as pkg/luabridge.Console).
 type DebugConsoleWindow struct {
@@ -151,6 +158,16 @@ func (c *DebugConsoleWindow) Draw() {
 				if imgui.Button("Unpick") {
 					picker.ClearPicked()
 				}
+			}
+		}
+		if prefabUI, ok := c.Backend.(DebugConsolePrefabUI); ok {
+			imgui.SameLine()
+			label := "Prefabs"
+			if prefabUI.IsPrefabEditorOpen() {
+				label = "Prefabs: ON"
+			}
+			if imgui.Button(label) {
+				prefabUI.SetPrefabEditorOpen(!prefabUI.IsPrefabEditorOpen())
 			}
 		}
 		imgui.Separator()

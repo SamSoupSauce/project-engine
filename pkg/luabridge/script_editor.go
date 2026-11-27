@@ -252,8 +252,10 @@ func (s *ScriptEditorService) CommitScript(doc engine.ScriptEditorDocument) (eng
 
 	cleanPath := filepath.Clean(doc.FilePath)
 	if dir := filepath.Dir(cleanPath); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return doc, fmt.Errorf("script editor: create dir %q: %w", dir, err)
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return doc, fmt.Errorf("script editor: create dir %q: %w", dir, err)
+			}
 		}
 	}
 	rawBytes := []byte(fullSource)

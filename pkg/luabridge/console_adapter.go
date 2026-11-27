@@ -74,3 +74,19 @@ func (c *Console) GetHistory() []string {
 	copy(out, c.History)
 	return out
 }
+
+// IsPrefabEditorOpen implements engine.DebugConsolePrefabUI.
+func (c *Console) IsPrefabEditorOpen() bool {
+	if c == nil || c.Bridge == nil || c.Bridge.PrefabEditor() == nil {
+		return false
+	}
+	return c.Bridge.PrefabEditor().IsPrefabEditorOpen()
+}
+
+// SetPrefabEditorOpen implements engine.DebugConsolePrefabUI.
+func (c *Console) SetPrefabEditorOpen(open bool) {
+	if c == nil || c.Bridge == nil || c.Bridge.PrefabEditor() == nil {
+		return
+	}
+	c.Bridge.PrefabEditor().SetPrefabEditorOpen(open)
+}
