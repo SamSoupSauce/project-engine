@@ -226,4 +226,22 @@ func TestKitchenSinkSceneLoadsAllPropsAndTiles(t *testing.T) {
 	if scene.lampFractured {
 		t.Fatalf("expected ResetShowcaseProps to restore lampFractured=false")
 	}
+
+	// Exercise full KitchenSinkDemoScene headless tick loop (physics + scene ticks + clean unload).
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runHeadlessLoop(ctx, scene, 5*time.Millisecond)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("KitchenSinkDemoScene runHeadlessLoop did not stop after cancel")
+	}
+	if scene.GetTickCount() == 0 {
+		t.Fatal("expected KitchenSinkDemoScene headless loop to dispatch fixed ticks")
+	}
 }

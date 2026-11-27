@@ -1,12 +1,36 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"runtime"
+	"strings"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
+
+// ErrNoDisplayServer is returned when attempting to open a GLFW window on a
+// displayless Unix host (no DISPLAY or WAYLAND_DISPLAY environment variable).
+var ErrNoDisplayServer = errors.New("engine: no display server available")
+
+// Test seams for GLFW initialization and display-server detection.
+var (
+	glfwInit         = glfw.Init
+	hasDisplayServer = func() bool {
+		return hasDisplayServerForEnv(runtime.GOOS, os.Getenv)
+	}
+)
+
+func hasDisplayServerForEnv(goos string, getenv func(string) string) bool {
+	switch goos {
+	case "linux", "freebsd", "openbsd", "netbsd":
+		return strings.TrimSpace(getenv("DISPLAY")) != "" || strings.TrimSpace(getenv("WAYLAND_DISPLAY")) != ""
+	default:
+		return true
+	}
+}
 
 // GLWindowConfig configures a GLFW + OpenGL 3.3 Core window and rendering context.
 type GLWindowConfig struct {
@@ -132,14 +156,34 @@ func (c *GLContext) Destroy() {
 
 // Open initializes GLFW on the calling OS thread, creates an OpenGL 3.3 Core window,
 // makes its context current, and initializes OpenGL bindings.
-func (c *GLContext) Open() error {
+func (c *GLContext) Open() (err error) {
 	if c.Ready && c.Window != nil {
 		return nil
 	}
 
+	if !hasDisplayServer() {
+		return fmt.Errorf("%w (DISPLAY and WAYLAND_DISPLAY are unset)", ErrNoDisplayServer)
+	}
+
 	runtime.LockOSThread()
 
-	if err := glfw.Init(); err != nil {
+	// go-gl/glfw logs platform failures (e.g. unreachable X server) and returns
+	// nil from Init; the next GLFW call then panics with NotInitialized.
+	// Convert that into an error and release the OS thread lock on failure so
+	// callers can skip live window tests and degrade gracefully.
+	defer func() {
+		if r := recover(); r != nil {
+			c.Window = nil
+			c.Ready = false
+			c.ownsGLFW = false
+			err = fmt.Errorf("engine: GLFW platform initialization failed: %v", r)
+		}
+		if err != nil {
+			runtime.UnlockOSThread()
+		}
+	}()
+
+	if err := glfwInit(); err != nil {
 		return fmt.Errorf("engine: glfw.Init failed: %w", err)
 	}
 

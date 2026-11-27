@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -70,7 +71,7 @@ const defaultHeadlessTickInterval = 16 * time.Millisecond
 // runHeadlessLoop drives scene ticks without a GLFW window or OpenGL context.
 // AgentServer commands are drained by the scene's pre-tick hook, so ticking is
 // sufficient to serve RPC/WebSocket traffic in headless mode.
-func runHeadlessLoop(ctx context.Context, scene *engine.BaseScene, interval time.Duration) {
+func runHeadlessLoop(ctx context.Context, scene engine.Scene, interval time.Duration) {
 	if scene == nil || ctx == nil {
 		return
 	}
@@ -145,6 +146,9 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 		glCtx.AutoOpen = true
 		ctxObj.AddComponent(glCtx)
 		if glCtx.InitErr != nil {
+			if errors.Is(glCtx.InitErr, engine.ErrNoDisplayServer) {
+				return fmt.Errorf("failed to open OpenGL context: %w (pass --headless to run without a window)", glCtx.InitErr)
+			}
 			return fmt.Errorf("failed to open OpenGL context: %w", glCtx.InitErr)
 		}
 		defer ctxObj.Destroy()
@@ -339,8 +343,11 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 		}
 	}
 
-	app := engine.NewGLApp(cfg, scene, overlay)
-	app.Context = glCtx
+	var app *engine.GLApp
+	if !opts.Headless {
+		app = engine.NewGLApp(cfg, scene, overlay)
+		app.Context = glCtx
+	}
 
 	if opts.Serve {
 		agentServer := luabridge.NewAgentServer(bridge, console, scene.BaseScene, luabridge.AgentServerConfig{
@@ -356,7 +363,7 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 			defer cancel()
 			_ = agentServer.Stop(ctx)
 		}()
-		if !opts.Headless {
+		if !opts.Headless && app != nil {
 			app.OnPostRender = func() {
 				agentServer.FlushFrameCaptures(glCtx.FramebufferW, glCtx.FramebufferH)
 			}
@@ -383,7 +390,7 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 
 	if opts.Headless {
 		log.Printf("[Headless] Running without a window; scene ticks and agent bridge are active. Press Ctrl+C to stop.")
-		runHeadlessLoop(ctx, scene.BaseScene, 0)
+		runHeadlessLoop(ctx, scene, 0)
 		return nil
 	}
 

@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"errors"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -20,6 +22,77 @@ func newStubGLScene() *stubGLScene {
 
 func (s *stubGLScene) Draw3D() { s.draw3DCalls++ }
 func (s *stubGLScene) Draw2D() { s.draw2DCalls++ }
+
+func TestGLContextOpenReturnsErrorOnGLFWPlatformPanic(t *testing.T) {
+	origDisplay := hasDisplayServer
+	hasDisplayServer = func() bool { return true }
+	defer func() { hasDisplayServer = origDisplay }()
+
+	original := glfwInit
+	glfwInit = func() error {
+		panic("PlatformError: X11: The DISPLAY environment variable is missing")
+	}
+	defer func() { glfwInit = original }()
+
+	ctx := NewGLContext(DefaultGLWindowConfig())
+	err := ctx.Open()
+	if err == nil {
+		t.Fatal("expected Open to return an error instead of propagating a GLFW panic")
+	}
+	if !strings.Contains(err.Error(), "DISPLAY") {
+		t.Fatalf("expected error to carry the GLFW platform failure, got %v", err)
+	}
+	if ctx.Ready || ctx.Window != nil {
+		t.Fatalf("expected failed Open to leave context unready, got Ready=%v Window=%v", ctx.Ready, ctx.Window)
+	}
+}
+
+func TestGLContextOpenSkipsGLFWInitWithoutDisplay(t *testing.T) {
+	origDisplay := hasDisplayServer
+	hasDisplayServer = func() bool { return false }
+	defer func() { hasDisplayServer = origDisplay }()
+
+	origInit := glfwInit
+	glfwInitCalled := false
+	glfwInit = func() error {
+		glfwInitCalled = true
+		return nil
+	}
+	defer func() { glfwInit = origInit }()
+
+	ctx := NewGLContext(DefaultGLWindowConfig())
+	err := ctx.Open()
+	if !errors.Is(err, ErrNoDisplayServer) {
+		t.Fatalf("expected ErrNoDisplayServer, got %v", err)
+	}
+	if glfwInitCalled {
+		t.Fatal("expected glfwInit not to be called when no display server is available")
+	}
+	if ctx.Ready || ctx.Window != nil {
+		t.Fatalf("expected failed Open to leave context unready, got Ready=%v Window=%v", ctx.Ready, ctx.Window)
+	}
+}
+
+func TestHasDisplayServerForEnv(t *testing.T) {
+	makeEnv := func(vals map[string]string) func(string) string {
+		return func(k string) string { return vals[k] }
+	}
+	if hasDisplayServerForEnv("linux", makeEnv(nil)) {
+		t.Fatal("expected linux with empty DISPLAY and WAYLAND_DISPLAY to report no display server")
+	}
+	if !hasDisplayServerForEnv("linux", makeEnv(map[string]string{"DISPLAY": ":0"})) {
+		t.Fatal("expected linux with DISPLAY=:0 to report display server available")
+	}
+	if !hasDisplayServerForEnv("linux", makeEnv(map[string]string{"WAYLAND_DISPLAY": "wayland-0"})) {
+		t.Fatal("expected linux with WAYLAND_DISPLAY to report display server available")
+	}
+	if !hasDisplayServerForEnv("windows", makeEnv(nil)) {
+		t.Fatal("expected windows to report display server available")
+	}
+	if !hasDisplayServerForEnv("darwin", makeEnv(nil)) {
+		t.Fatal("expected darwin to report display server available")
+	}
+}
 
 func TestGLContext_ComponentLifecycleWithoutOpen(t *testing.T) {
 	cfg := DefaultGLWindowConfig()
