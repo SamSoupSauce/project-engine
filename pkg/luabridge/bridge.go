@@ -27,6 +27,7 @@ type LuaBridge struct {
 	componentClasses  map[string]*ComponentClass
 	hookListeners     map[*engine.GameObject]map[string][]*HookListener
 	scriptEditor      *ScriptEditorService
+	prefabService     *PrefabService
 	loadingScriptPath string
 	scene             *engine.BaseScene
 	console           *Console
@@ -57,6 +58,8 @@ func NewLuaBridge() *LuaBridge {
 	bridge.registerEngineTypes()
 	bridge.registerConsoleCommands()
 	bridge.registerScriptEditorAPIs()
+	bridge.registerPrefabAPIs()
+	bridge.registerSearchAndComponentCommands()
 	return bridge
 }
 
@@ -294,6 +297,13 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 		"Lua Helpers:",
 		"  help([target])              Show general help, object help (help(selected)), or class help (help(Mesh))",
 		"  edit([target])              Open or close the Dear ImGui Script Editor",
+		"  edit_prefab([target])       Open the Dear ImGui Prefab Manager/Editor",
+		"  search_prefabs([query])     Search JSON prefabs in prefabs/",
+		"  save_prefab([obj], name)    Save a GameObject (or selected) to prefabs/<name>.json",
+		"  spawn_prefab(name, [opts])  Instantiate a prefab GameObject into the scene",
+		"  search_scripts([query])     Search Lua scripts in scripts/",
+		"  search_components([query])  Search built-in & custom Component classes",
+		"  comp(...)                   Search/inspect/add/remove/get/set/call Components",
 		"  clear()                     Clear console output buffer",
 		"  print(...)                  Print values to console output (GameObjects & Components pretty-print JSON)",
 		"  pick(idOrName) / unpick()   Select or deselect a GameObject (`selected` global)",

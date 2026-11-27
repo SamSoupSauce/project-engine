@@ -203,6 +203,7 @@ func main() {
 	overlay := engine.NewImGuiOverlay()
 	overlay.SetConsole(console)
 	overlay.SetScriptEditor(bridge.ScriptEditor())
+	overlay.SetPrefabEditor(bridge.PrefabEditor())
 
 	overlay.OnGameMouseButton = func(button glfw.MouseButton, action glfw.Action, _ glfw.ModifierKey) {
 		if button == glfw.MouseButtonLeft && action == glfw.Press && glCtx.Window != nil {
