@@ -17,6 +17,7 @@ import (
 )
 
 type demoServerOptions struct {
+	Version      bool
 	Root         string
 	RootExplicit bool
 	Config       string
@@ -30,6 +31,7 @@ type demoServerOptions struct {
 func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	var opts demoServerOptions
+	fs.BoolVar(&opts.Version, "version", false, "Print engine version and exit")
 	fs.StringVar(&opts.Root, "root", ".", "Game/script/config/data root directory containing assets/, scripts/, prefabs/, config/")
 	fs.StringVar(&opts.Config, "config", "", "Optional path to engine.json configuration file")
 	fs.BoolVar(&opts.InitDirs, "init-dirs", false, "Initialize missing standard directory structure under --root on startup")
@@ -62,6 +64,10 @@ func main() {
 	serverOpts, err := parseDemoServerFlags(os.Args[1:])
 	if err != nil {
 		log.Fatalf("flag error: %v", err)
+	}
+	if serverOpts.Version {
+		fmt.Printf("project-engine %s\n", engine.Version)
+		return
 	}
 
 	wsCfg, paths, err := engine.LoadWorkspaceConfig(serverOpts.Root, serverOpts.RootExplicit, serverOpts.Config)

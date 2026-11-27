@@ -1,6 +1,7 @@
 param(
     [switch]$Package,
     [switch]$Test,
+    [string]$Version = "0.1.0",
     [string]$OutDir = "bin",
     [string]$DistDir = "dist/project-engine"
 )
@@ -13,8 +14,9 @@ if (-not (Test-Path $OutDir)) {
 }
 
 $exePath = Join-Path $OutDir "project-engine.exe"
-Write-Host "Building engine executable -> $exePath"
-go build -o $exePath ./cmd/demo
+$ldflags = "-X github.com/SamSoupSauce/project-engine/engine.Version=$Version"
+Write-Host "Building engine executable -> $exePath (version $Version)"
+go build -ldflags $ldflags -o $exePath ./cmd/demo
 
 if ($Test) {
     Write-Host "Running Go test suite..."

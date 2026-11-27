@@ -7,6 +7,8 @@ endif
 BIN_DIR := bin
 DIST_DIR := dist/project-engine
 TARGET := $(BIN_DIR)/project-engine$(EXE_EXT)
+VERSION ?= 0.1.0
+LDFLAGS := -X github.com/SamSoupSauce/project-engine/engine.Version=$(VERSION)
 export CGO_LDFLAGS_ALLOW := -l:.*\.a
 
 .PHONY: all build test vet run package clean
@@ -15,8 +17,8 @@ all: build
 
 build:
 	@mkdir -p $(BIN_DIR)
-	go build -o $(TARGET) ./cmd/demo
-	@echo Built $(TARGET)
+	go build -ldflags "$(LDFLAGS)" -o $(TARGET) ./cmd/demo
+	@echo Built $(TARGET) ($(VERSION))
 
 test:
 	go test -count=1 ./...

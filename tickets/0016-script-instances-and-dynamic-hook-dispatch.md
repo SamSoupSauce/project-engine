@@ -1,7 +1,7 @@
 # Ticket 0016: Script Instances and Dynamic Hook Dispatch
 
 ## Status
-Open
+Deferred to v0.2.0 (Partially superseded by Tickets 0009, 0015, and 0017: isolated `ScriptComponent` instances and `GameObject:CallHook` / `Component(...)` dynamic hook dispatch are implemented; optional `ScriptContainerComponent` / `AddScript` sugar remains deferred).
 
 ## Description
 Implement a lightweight Script Container Component (`ScriptContainerComponent`) and a dynamic Entity Hook Dispatcher in `project-engine` (`engine/components/script.go`, `pkg/luabridge/hooks.go`). Any entity can host arbitrary independent Lua scripts. Scripts are plain tables with their own state. Hooks allow both internal engine events and external game code to broadcast named events across an entity's scripts without strict interface definitions.

@@ -1,0 +1,277 @@
+name: CI & Multi-Platform Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64 (windows/amd64)
+            os: windows-latest
+            goos: windows
+            goarch: amd64
+            archive_ext: zip
+            run_tests: true
+          - name: Windows ARM64 (windows/arm64)
+            os: windows-latest
+            goos: windows
+            goarch: arm64
+            archive_ext: zip
+            run_tests: false
+          - name: Ubuntu LTS x64 (linux/amd64)
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+            archive_ext: tar.gz
+            run_tests: true
+          - name: Ubuntu LTS ARM64 (linux/arm64)
+            os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+            archive_ext: tar.gz
+            run_tests: true
+          - name: macOS Apple Silicon (darwin/arm64)
+            os: macos-15
+            goos: darwin
+            goarch: arm64
+            archive_ext: tar.gz
+            run_tests: true
+          - name: macOS Intel (darwin/amd64)
+            os: macos-15
+            goos: darwin
+            goarch: amd64
+            archive_ext: tar.gz
+            run_tests: false
+
+    env:
+      CGO_ENABLED: "1"
+      CGO_LDFLAGS_ALLOW: "-l:.*\\.a"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Resolve release version
+        id: ver
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ -n "${GITHUB_REF_NAME:-}" ]; then
+            echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.1.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -----------------------------------------------------------------------
+      # Windows x64: uses vendored libjoltc.a & libluajit.a
+      # -----------------------------------------------------------------------
+      - name: Run vet, race tests & package (Windows x64)
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
+          go test -race -count=1 ./...
+          .\build.ps1 -Package -Version $ver
+          .\bin\project-engine.exe --version
+          New-Item -ItemType Directory -Path release-artifacts -Force | Out-Null
+          Compress-Archive -Path "dist\project-engine\*" -DestinationPath "release-artifacts\project-engine-$ver-windows-amd64.zip" -Force
+
+      # -----------------------------------------------------------------------
+      # Windows ARM64: cross-compile JoltC, LuaJIT & Go using llvm-mingw
+      # -----------------------------------------------------------------------
+      - name: Build native dependencies & cross-compile (Windows ARM64)
+        if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          NATIVE_DIR="${RUNNER_TEMP}/native-windows-arm64"
+          mkdir -p "${NATIVE_DIR}/lib"
+
+          # Fetch llvm-mingw (ucrt x86_64 host -> aarch64-w64-mingw32 target)
+          MINGW_URL=$(curl -fsSL https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest \
+            | grep -oE 'https://[^"]+ucrt-x86_64\.zip' | head -n1)
+          curl -fsSL "$MINGW_URL" -o "${RUNNER_TEMP}/llvm-mingw.zip"
+          unzip -q "${RUNNER_TEMP}/llvm-mingw.zip" -d "${RUNNER_TEMP}/llvm-mingw-extract"
+          MINGW_BIN=$(find "${RUNNER_TEMP}/llvm-mingw-extract" -maxdepth 2 -type d -name bin | head -n1)
+          export PATH="${MINGW_BIN}:${PATH}"
+
+          # Build JoltC static library for Windows ARM64
+          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+            -DCMAKE_C_COMPILER=aarch64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-w64-mingw32-g++ \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DJPH_BUILD_SHARED_LIBRARY=OFF \
+            -DJPH_OBJECT_LAYER_BITS=32
+          cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
+          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+
+          # Build LuaJIT 2.1 static library for Windows ARM64
+          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          make -C "${RUNNER_TEMP}/luajit/src" -j4 \
+            HOST_CC="gcc" \
+            CROSS=aarch64-w64-mingw32- \
+            TARGET_SYS=Windows \
+            BUILDMODE=static
+          cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
+
+          # Cross-compile Project Engine binary for windows/arm64
+          mkdir -p dist/project-engine/config release-artifacts
+          GOOS=windows GOARCH=arm64 \
+            CC=aarch64-w64-mingw32-gcc \
+            CXX=aarch64-w64-mingw32-g++ \
+            CGO_LDFLAGS="-L${NATIVE_DIR}/lib" \
+            go build -ldflags "-X github.com/SamSoupSauce/project-engine/engine.Version=${VER}" \
+            -o dist/project-engine/project-engine.exe ./cmd/demo
+
+          cp engine.json dist/project-engine/engine.json
+          cp -R assets scripts prefabs dist/project-engine/
+          (cd dist/project-engine && 7z a -tzip "../../release-artifacts/project-engine-${VER}-windows-arm64.zip" .)
+
+      # -----------------------------------------------------------------------
+      # Ubuntu LTS x64 & ARM64
+      # -----------------------------------------------------------------------
+      - name: Install system packages (Ubuntu LTS)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build pkg-config \
+            libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev \
+            libluajit-5.1-dev
+
+      - name: Build JoltC, test & package (Ubuntu LTS)
+        if: matrix.goos == 'linux'
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          NATIVE_DIR="${RUNNER_TEMP}/native-linux-${{ matrix.goarch }}"
+          mkdir -p "${NATIVE_DIR}/lib"
+
+          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DJPH_BUILD_SHARED_LIBRARY=OFF \
+            -DJPH_OBJECT_LAYER_BITS=32
+          cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
+          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+
+          export CGO_LDFLAGS="-L${NATIVE_DIR}/lib"
+          go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
+          go test -race -count=1 ./...
+
+          mkdir -p dist/project-engine/config release-artifacts
+          go build -ldflags "-X github.com/SamSoupSauce/project-engine/engine.Version=${VER}" \
+            -o dist/project-engine/project-engine ./cmd/demo
+          ./dist/project-engine/project-engine --version
+
+          cp engine.json dist/project-engine/engine.json
+          cp -R assets scripts prefabs dist/project-engine/
+          tar -czf "release-artifacts/project-engine-${VER}-linux-${{ matrix.goarch }}.tar.gz" -C dist/project-engine .
+
+      # -----------------------------------------------------------------------
+      # macOS ARM64 (Apple Silicon) & Intel (x86_64)
+      # -----------------------------------------------------------------------
+      - name: Build JoltC & LuaJIT, test & package (macOS)
+        if: matrix.goos == 'darwin'
+        run: |
+          set -euo pipefail
+          VER="${{ steps.ver.outputs.version }}"
+          ARCH="${{ matrix.goarch }}"
+          OSX_ARCH="arm64"
+          if [ "${ARCH}" = "amd64" ]; then
+            OSX_ARCH="x86_64"
+          fi
+
+          NATIVE_DIR="${RUNNER_TEMP}/native-darwin-${ARCH}"
+          mkdir -p "${NATIVE_DIR}/lib"
+
+          git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
+          cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="${OSX_ARCH}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DJPH_BUILD_SHARED_LIBRARY=OFF \
+            -DJPH_OBJECT_LAYER_BITS=32
+          cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
+          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+
+          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          make -C "${RUNNER_TEMP}/luajit/src" -j4 \
+            HOST_CC="clang" \
+            STATIC_CC="clang -arch ${OSX_ARCH}" \
+            DYNAMIC_CC="clang -arch ${OSX_ARCH}" \
+            TARGET_LD="clang -arch ${OSX_ARCH}" \
+            TARGET_AR="ar rcus" \
+            MACOSX_DEPLOYMENT_TARGET=13.0 \
+            BUILDMODE=static amalg
+          cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
+
+          export CGO_CFLAGS="-arch ${OSX_ARCH}"
+          export CGO_CXXFLAGS="-arch ${OSX_ARCH}"
+          export CGO_LDFLAGS="-arch ${OSX_ARCH} -L${NATIVE_DIR}/lib"
+          export GOOS=darwin
+          export GOARCH="${ARCH}"
+
+          if [ "${{ matrix.run_tests }}" = "true" ]; then
+            go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
+            go test -race -count=1 ./...
+          fi
+
+          mkdir -p dist/project-engine/config release-artifacts
+          go build -ldflags "-X github.com/SamSoupSauce/project-engine/engine.Version=${VER}" \
+            -o dist/project-engine/project-engine ./cmd/demo
+          if [ "${ARCH}" = "arm64" ]; then
+            ./dist/project-engine/project-engine --version
+          fi
+
+          cp engine.json dist/project-engine/engine.json
+          cp -R assets scripts prefabs dist/project-engine/
+          tar -czf "release-artifacts/project-engine-${VER}-darwin-${ARCH}.tar.gz" -C dist/project-engine .
+
+      - name: Upload target archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-engine-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release-artifacts/*
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all platform build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release with all 6 platform archives
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: artifacts/*

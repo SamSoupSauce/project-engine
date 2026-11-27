@@ -13,8 +13,13 @@ func TestParseDemoServerFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error without --serve: %v", err)
 	}
-	if opts.Serve || opts.Address != "127.0.0.1:4242" || opts.Root != "." || opts.RootExplicit || opts.InitDirs {
+	if opts.Serve || opts.Address != "127.0.0.1:4242" || opts.Root != "." || opts.RootExplicit || opts.InitDirs || opts.Version {
 		t.Fatalf("unexpected default opts: %+v", opts)
+	}
+
+	opts, err = parseDemoServerFlags([]string{"--version"})
+	if err != nil || !opts.Version {
+		t.Fatalf("expected --version flag to parse cleanly, got %+v, err=%v", opts, err)
 	}
 
 	// --root, --config, --init-dirs parsing.
