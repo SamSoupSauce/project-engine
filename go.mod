@@ -12,5 +12,6 @@ require (
 
 require (
 	github.com/ebitengine/purego v0.11.0 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jupiterrider/ffi v0.8.0 // indirect
 )

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/AllenDang/cimgui-go/impl/opengl3"
 	"github.com/AllenDang/cimgui-go/imgui"
@@ -28,6 +29,9 @@ type ImGuiOverlay struct {
 	MetricsFPS  float32
 	SceneName   string
 	ObjectCount int
+
+	tunnelMu  sync.RWMutex
+	tunnelURL string
 
 	DrawUI         func()
 	onHeadlessDraw func(dd *imgui.DrawData)
@@ -164,6 +168,26 @@ func (o *ImGuiOverlay) SetPrefabEditor(backend PrefabEditorBackend) {
 	o.PrefabEditor = NewPrefabEditorWindow(backend)
 }
 
+// SetTunnelURL safely sets the active Cloudflare Quick Tunnel URL displayed in the debug overlay.
+func (o *ImGuiOverlay) SetTunnelURL(url string) {
+	if o == nil {
+		return
+	}
+	o.tunnelMu.Lock()
+	o.tunnelURL = url
+	o.tunnelMu.Unlock()
+}
+
+// GetTunnelURL safely returns the active Cloudflare Quick Tunnel URL.
+func (o *ImGuiOverlay) GetTunnelURL() string {
+	if o == nil {
+		return ""
+	}
+	o.tunnelMu.RLock()
+	defer o.tunnelMu.RUnlock()
+	return o.tunnelURL
+}
+
 // NewFrame starts a new Dear ImGui frame across OpenGL 3, GLFW, and ImGui core.
 func (o *ImGuiOverlay) NewFrame() {
 	if !o.initialized {
@@ -220,6 +244,9 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 			}
 			imgui.TextUnformatted(fmt.Sprintf("WantCaptureMouse: %v", o.WantCaptureMouse()))
 			imgui.TextUnformatted(fmt.Sprintf("WantCaptureKeyboard: %v", o.WantCaptureKeyboard()))
+			if tURL := o.GetTunnelURL(); tURL != "" {
+				imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Tunnel: %s", tURL))
+			}
 		}
 		imgui.End()
 	}

@@ -36,6 +36,7 @@ type LuaBridge struct {
 	stateMu           reentrantMutex
 	outputLogs        []string
 	execCapture       *[]string
+	logSinks          []func(line string)
 	pendingHelpArg    string
 	OnScriptError     func(scriptPath, hook string, err error)
 }
@@ -105,6 +106,16 @@ func (b *LuaBridge) GetPickedObject() *engine.GameObject {
 	return b.pickedObj
 }
 
+// AddLogSink registers a callback invoked when EmitConsole emits a line without an attached Console.
+func (b *LuaBridge) AddLogSink(fn func(line string)) {
+	if b == nil || fn == nil {
+		return
+	}
+	b.dataMu.Lock()
+	b.logSinks = append(b.logSinks, fn)
+	b.dataMu.Unlock()
+}
+
 // EmitConsole forwards text lines into outputLogs, any active execution capture, and attached Console.
 func (b *LuaBridge) EmitConsole(text string, lineType LineType) {
 	if text == "" {
@@ -112,6 +123,8 @@ func (b *LuaBridge) EmitConsole(text string, lineType LineType) {
 	}
 	b.dataMu.RLock()
 	c := b.console
+	sinks := make([]func(string), len(b.logSinks))
+	copy(sinks, b.logSinks)
 	b.dataMu.RUnlock()
 
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
@@ -121,6 +134,10 @@ func (b *LuaBridge) EmitConsole(text string, lineType LineType) {
 		}
 		if c != nil {
 			c.Print(line, lineType)
+		} else {
+			for _, sink := range sinks {
+				sink(line)
+			}
 		}
 	}
 }
