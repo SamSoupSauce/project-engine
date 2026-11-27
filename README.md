@@ -32,6 +32,16 @@ On first launch, an interactive **Quick Start Tutorial** modal appears with a pe
 - `[Left Click]` — Ray-pick 3D objects in the viewport (binds Lua `selected`)
 - `[Esc]` — Unlock cursor or quit
 
+### Headless Mode (no display)
+
+Pass `--headless` to run the full scene, Lua scripts, physics ticks, and the agent bridge without creating a GLFW window or OpenGL context. Fixed simulation ticks continue at 16 ms and the AgentServer is drained on the tick loop, so HTTP `/rpc` and WebSocket `/ws` work normally on displayless hosts (CI, containers). Frame capture is the only GL-dependent RPC: it returns a clean `-32001` "no active OpenGL window" error in this mode.
+
+```bash
+./bin/project-engine --headless --serve --address=127.0.0.1:4242 --token=""
+```
+
+Use Ctrl+C (SIGINT/SIGTERM) for a graceful shutdown. Headless mode composes with `--root`, `--config`, `--init-dirs`, and `--tunnel`; it is independent of `--serve`.
+
 ---
 
 ## Architecture & Packages

@@ -7,7 +7,9 @@ import (
 	"log"
 	"math"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/AllenDang/cimgui-go/imgui"
@@ -22,6 +24,7 @@ type demoServerOptions struct {
 	RootExplicit bool
 	Config       string
 	InitDirs     bool
+	Headless     bool
 	Serve        bool
 	Tunnel       bool
 	Address      string
@@ -35,6 +38,7 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs.StringVar(&opts.Root, "root", ".", "Game/script/config/data root directory containing assets/, scripts/, prefabs/, config/")
 	fs.StringVar(&opts.Config, "config", "", "Optional path to engine.json configuration file")
 	fs.BoolVar(&opts.InitDirs, "init-dirs", false, "Initialize missing standard directory structure under --root on startup")
+	fs.BoolVar(&opts.Headless, "headless", false, "Run without a GLFW window or OpenGL context (scene ticks and --serve still run)")
 	fs.BoolVar(&opts.Serve, "serve", false, "Start dual-transport HTTP JSON-RPC + WebSocket agent bridge server")
 	fs.BoolVar(&opts.Tunnel, "tunnel", false, "Auto-locate/download cloudflared and open a quick tunnel to --address (implies --serve)")
 	fs.StringVar(&opts.Address, "address", luabridge.DefaultAgentServerAddress, "Bind address for agent bridge server")
@@ -60,29 +64,68 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	return opts, nil
 }
 
+// defaultHeadlessTickInterval matches BaseScene's default fixed simulation tick.
+const defaultHeadlessTickInterval = 16 * time.Millisecond
+
+// runHeadlessLoop drives scene ticks without a GLFW window or OpenGL context.
+// AgentServer commands are drained by the scene's pre-tick hook, so ticking is
+// sufficient to serve RPC/WebSocket traffic in headless mode.
+func runHeadlessLoop(ctx context.Context, scene *engine.BaseScene, interval time.Duration) {
+	if scene == nil || ctx == nil {
+		return
+	}
+	if interval <= 0 {
+		interval = defaultHeadlessTickInterval
+	}
+	scene.Init()
+	defer scene.Unload()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			scene.Update(float32(interval.Seconds()))
+		}
+	}
+}
+
 func main() {
-	serverOpts, err := parseDemoServerFlags(os.Args[1:])
+	opts, err := parseDemoServerFlags(os.Args[1:])
 	if err != nil {
 		log.Fatalf("flag error: %v", err)
 	}
-	if serverOpts.Version {
+	if opts.Version {
 		fmt.Printf("project-engine %s\n", engine.Version)
 		return
 	}
 
-	wsCfg, paths, err := engine.LoadWorkspaceConfig(serverOpts.Root, serverOpts.RootExplicit, serverOpts.Config)
-	if err != nil {
-		log.Fatalf("workspace config error: %v", err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := runDemo(ctx, opts); err != nil {
+		log.Fatalf("demo runtime error: %v", err)
 	}
-	if serverOpts.InitDirs {
+}
+
+// runDemo owns the full demo lifecycle. Headless mode skips GLFW/OpenGL setup
+// and drives the scene's fixed ticks directly, leaving the agent bridge usable
+// on machines without a display.
+func runDemo(ctx context.Context, opts demoServerOptions) error {
+	wsCfg, paths, err := engine.LoadWorkspaceConfig(opts.Root, opts.RootExplicit, opts.Config)
+	if err != nil {
+		return fmt.Errorf("workspace config error: %w", err)
+	}
+	if opts.InitDirs {
 		if created, initErr := engine.InitWorkspaceDirs(paths); initErr != nil {
-			log.Fatalf("failed to initialize workspace directories: %v", initErr)
+			return fmt.Errorf("failed to initialize workspace directories: %w", initErr)
 		} else if len(created) > 0 {
 			log.Printf("[Workspace] Initialized %d directory(s) under %s", len(created), paths.RootDir)
 		}
 	}
 	if err := engine.VerifyWorkspaceStructure(paths); err != nil {
-		log.Fatalf("%v", err)
+		return err
 	}
 
 	cfg := engine.DefaultGLWindowConfig()
@@ -91,22 +134,30 @@ func main() {
 		cfg.Title = "Project Engine - Kitchen Sink Demo"
 	}
 
-	// Instantiate GLContext as an engine.Component attached to a GameObject.
-	ctxObj := engine.NewGameObject("gl_context", "GLContextOwner")
-	glCtx := engine.NewGLContext(cfg)
-	glCtx.AutoOpen = true
-	ctxObj.AddComponent(glCtx)
-	if glCtx.InitErr != nil {
-		log.Fatalf("failed to open OpenGL context: %v", glCtx.InitErr)
+	// Headless mode skips GLFW/OpenGL entirely; tests already construct the full
+	// scene with a nil GLContext, so the same code path is safe here.
+	var glCtx *engine.GLContext
+	var ctxObj *engine.GameObject
+	if !opts.Headless {
+		// Instantiate GLContext as an engine.Component attached to a GameObject.
+		ctxObj = engine.NewGameObject("gl_context", "GLContextOwner")
+		glCtx = engine.NewGLContext(cfg)
+		glCtx.AutoOpen = true
+		ctxObj.AddComponent(glCtx)
+		if glCtx.InitErr != nil {
+			return fmt.Errorf("failed to open OpenGL context: %w", glCtx.InitErr)
+		}
+		defer ctxObj.Destroy()
 	}
-	defer ctxObj.Destroy()
 
 	scene := newKitchenSinkDemoScene(glCtx, paths)
 
 	bridge := luabridge.NewLuaBridge()
 	defer bridge.Close()
 	bridge.SetWorkspacePaths(paths)
-	bridge.RegisterGameObject("context", ctxObj)
+	if ctxObj != nil {
+		bridge.RegisterGameObject("context", ctxObj)
+	}
 	for id, obj := range scene.propObjects {
 		bridge.RegisterGameObject(id, obj)
 	}
@@ -119,11 +170,17 @@ func main() {
 
 	console := luabridge.NewConsole(bridge)
 	console.BindScene(scene.BaseScene)
-	if err := console.RedirectStdio(); err == nil {
-		defer console.RestoreStdio()
+	if !opts.Headless {
+		if err := console.RedirectStdio(); err == nil {
+			defer console.RestoreStdio()
+		}
 	}
 
 	overlay := engine.NewImGuiOverlay()
+	if opts.Headless {
+		overlay.InitHeadless(float32(cfg.Width), float32(cfg.Height))
+		defer overlay.Shutdown()
+	}
 	overlay.SetConsole(console)
 	overlay.SetScriptEditor(bridge.ScriptEditor())
 	overlay.SetPrefabEditor(bridge.PrefabEditor())
@@ -156,153 +213,157 @@ func main() {
 		console.Print("[Scene] "+w, luabridge.LineInfo)
 	}
 
-	overlay.OnGameMouseButton = func(button glfw.MouseButton, action glfw.Action, _ glfw.ModifierKey) {
-		if button == glfw.MouseButtonLeft && action == glfw.Press && glCtx.Window != nil {
-			ww, wh := glCtx.Window.GetSize()
-			mx, my := glCtx.Window.GetCursorPos()
-			if glCtx.CursorLocked {
-				mx, my = float64(ww)*0.5, float64(wh)*0.5
-			}
-			res := console.PickAtScreenPos(scene.Camera, float32(mx), float32(my), float32(ww), float32(wh))
-			if res.Hit && console.IsPickMode() {
-				console.SetPickMode(false)
-			}
-		}
-	}
-
-	overlay.OnGameCursorPos = func(x, y float64) {
-		scene.onCursorMove(x, y)
-	}
-	overlay.OnGameKey = func(key glfw.Key, _ int, action glfw.Action, _ glfw.ModifierKey) {
-		if action != glfw.Press {
-			return
-		}
-		switch key {
-		case glfw.KeyF:
-			glCtx.ToggleFullscreen()
-		case glfw.KeyL:
-			if glCtx.CursorLocked {
-				glCtx.UnlockCursor()
-			} else {
-				glCtx.LockCursor()
-			}
-		case glfw.KeyGraveAccent:
-			console.Toggle()
-			if console.IsOpen && glCtx.CursorLocked {
-				glCtx.UnlockCursor()
-			}
-		case glfw.KeyEscape:
-			if glCtx.CursorLocked {
-				glCtx.UnlockCursor()
-			} else if glCtx.Window != nil {
-				glCtx.Window.SetShouldClose(true)
+	if !opts.Headless {
+		overlay.OnGameMouseButton = func(button glfw.MouseButton, action glfw.Action, _ glfw.ModifierKey) {
+			if button == glfw.MouseButtonLeft && action == glfw.Press && glCtx.Window != nil {
+				ww, wh := glCtx.Window.GetSize()
+				mx, my := glCtx.Window.GetCursorPos()
+				if glCtx.CursorLocked {
+					mx, my = float64(ww)*0.5, float64(wh)*0.5
+				}
+				res := console.PickAtScreenPos(scene.Camera, float32(mx), float32(my), float32(ww), float32(wh))
+				if res.Hit && console.IsPickMode() {
+					console.SetPickMode(false)
+				}
 			}
 		}
-	}
 
-	overlay.DrawUI = func() {
-		imgui.SetNextWindowSizeV(imgui.NewVec2(430, 360), imgui.CondFirstUseEver)
-		if !imgui.Begin("Project Engine - Kitchen Sink Demo") {
-			imgui.End()
-			return
+		overlay.OnGameCursorPos = func(x, y float64) {
+			scene.onCursorMove(x, y)
 		}
-		imgui.TextUnformatted(fmt.Sprintf("Framebuffer: %dx%d | FPS: %.1f", glCtx.FramebufferW, glCtx.FramebufferH, glCtx.FPS))
-		imgui.TextUnformatted(fmt.Sprintf("Root: %s", filepath.ToSlash(paths.RootDir)))
-		imgui.TextUnformatted(fmt.Sprintf("Tiles: %d (Floors: %d, Walls: %d, Pillars: %d, Stairs: %d) | Props: %d",
-			scene.tileStats.TotalTiles, scene.tileStats.FloorCount, scene.tileStats.WallCount,
-			scene.tileStats.PillarCount, scene.tileStats.StairCount, len(scene.propObjects)))
-		if tURL := overlay.GetTunnelURL(); tURL != "" {
-			imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Tunnel URL: %s", tURL))
-		}
-		imgui.TextUnformatted("Shortcuts: [F] Fullscreen  [L] Cursor Lock  [~] Lua Console  [Esc] Unlock/Quit")
-
-		imgui.Separator()
-		imgui.Checkbox("Auto Rotate Cube", &scene.autoRotate)
-		imgui.SameLine()
-		imgui.Checkbox("Wireframe", &scene.showWireframe)
-		imgui.SameLine()
-		imgui.Checkbox("Show Tiles", &scene.showTiles)
-		imgui.Checkbox("Simulate Physics", &scene.simulatePhys)
-		imgui.SliderFloat("Rotation Speed", &scene.rotSpeed, -180.0, 180.0)
-		imgui.SliderFloat("Camera Distance", &scene.orbitDistance, 2.5, 18.0)
-
-		if imgui.Button("Overview Cam") {
-			scene.SetCameraPreset("overview")
-		}
-		imgui.SameLine()
-		if imgui.Button("Props Cam") {
-			scene.SetCameraPreset("props")
-		}
-		imgui.SameLine()
-		if imgui.Button("Stairs Cam") {
-			scene.SetCameraPreset("stairs")
-		}
-
-		if imgui.Button("Impulse Props") {
-			scene.PulseShowcaseProps()
-		}
-		imgui.SameLine()
-		if imgui.Button("Fracture Lamp") {
-			scene.FractureDemoLamp()
-		}
-		imgui.SameLine()
-		if imgui.Button("Reset Props") {
-			scene.ResetShowcaseProps()
-		}
-
-		if imgui.Button("Toggle Fullscreen") {
-			glCtx.ToggleFullscreen()
-		}
-		imgui.SameLine()
-		if imgui.Button("Toggle Cursor Lock") {
-			if glCtx.CursorLocked {
-				glCtx.UnlockCursor()
-			} else {
-				glCtx.LockCursor()
+		overlay.OnGameKey = func(key glfw.Key, _ int, action glfw.Action, _ glfw.ModifierKey) {
+			if action != glfw.Press {
+				return
+			}
+			switch key {
+			case glfw.KeyF:
+				glCtx.ToggleFullscreen()
+			case glfw.KeyL:
+				if glCtx.CursorLocked {
+					glCtx.UnlockCursor()
+				} else {
+					glCtx.LockCursor()
+				}
+			case glfw.KeyGraveAccent:
+				console.Toggle()
+				if console.IsOpen && glCtx.CursorLocked {
+					glCtx.UnlockCursor()
+				}
+			case glfw.KeyEscape:
+				if glCtx.CursorLocked {
+					glCtx.UnlockCursor()
+				} else if glCtx.Window != nil {
+					glCtx.Window.SetShouldClose(true)
+				}
 			}
 		}
-		imgui.SameLine()
-		if imgui.Button("Tutorial") && overlay.Tutorial != nil {
-			overlay.Tutorial.Show()
-		}
 
-		if scriptErrs := bridge.GetScriptErrors(); len(scriptErrs) > 0 {
+		overlay.DrawUI = func() {
+			imgui.SetNextWindowSizeV(imgui.NewVec2(430, 360), imgui.CondFirstUseEver)
+			if !imgui.Begin("Project Engine - Kitchen Sink Demo") {
+				imgui.End()
+				return
+			}
+			imgui.TextUnformatted(fmt.Sprintf("Framebuffer: %dx%d | FPS: %.1f", glCtx.FramebufferW, glCtx.FramebufferH, glCtx.FPS))
+			imgui.TextUnformatted(fmt.Sprintf("Root: %s", filepath.ToSlash(paths.RootDir)))
+			imgui.TextUnformatted(fmt.Sprintf("Tiles: %d (Floors: %d, Walls: %d, Pillars: %d, Stairs: %d) | Props: %d",
+				scene.tileStats.TotalTiles, scene.tileStats.FloorCount, scene.tileStats.WallCount,
+				scene.tileStats.PillarCount, scene.tileStats.StairCount, len(scene.propObjects)))
+			if tURL := overlay.GetTunnelURL(); tURL != "" {
+				imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Tunnel URL: %s", tURL))
+			}
+			imgui.TextUnformatted("Shortcuts: [F] Fullscreen  [L] Cursor Lock  [~] Lua Console  [Esc] Unlock/Quit")
+
 			imgui.Separator()
-			imgui.TextColored(imgui.NewVec4(1.0, 0.42, 0.42, 1.0), fmt.Sprintf("Script Errors (%d) - Engine running safely:", len(scriptErrs)))
-			for i := len(scriptErrs) - 1; i >= 0 && i >= len(scriptErrs)-3; i-- {
-				se := scriptErrs[i]
-				imgui.TextWrapped(fmt.Sprintf("  %s [%s]: %s", filepath.Base(se.ScriptPath), se.Hook, se.Message))
+			imgui.Checkbox("Auto Rotate Cube", &scene.autoRotate)
+			imgui.SameLine()
+			imgui.Checkbox("Wireframe", &scene.showWireframe)
+			imgui.SameLine()
+			imgui.Checkbox("Show Tiles", &scene.showTiles)
+			imgui.Checkbox("Simulate Physics", &scene.simulatePhys)
+			imgui.SliderFloat("Rotation Speed", &scene.rotSpeed, -180.0, 180.0)
+			imgui.SliderFloat("Camera Distance", &scene.orbitDistance, 2.5, 18.0)
+
+			if imgui.Button("Overview Cam") {
+				scene.SetCameraPreset("overview")
 			}
-			if imgui.Button("Clear Script Errors") {
-				bridge.ClearScriptErrors()
+			imgui.SameLine()
+			if imgui.Button("Props Cam") {
+				scene.SetCameraPreset("props")
 			}
+			imgui.SameLine()
+			if imgui.Button("Stairs Cam") {
+				scene.SetCameraPreset("stairs")
+			}
+
+			if imgui.Button("Impulse Props") {
+				scene.PulseShowcaseProps()
+			}
+			imgui.SameLine()
+			if imgui.Button("Fracture Lamp") {
+				scene.FractureDemoLamp()
+			}
+			imgui.SameLine()
+			if imgui.Button("Reset Props") {
+				scene.ResetShowcaseProps()
+			}
+
+			if imgui.Button("Toggle Fullscreen") {
+				glCtx.ToggleFullscreen()
+			}
+			imgui.SameLine()
+			if imgui.Button("Toggle Cursor Lock") {
+				if glCtx.CursorLocked {
+					glCtx.UnlockCursor()
+				} else {
+					glCtx.LockCursor()
+				}
+			}
+			imgui.SameLine()
+			if imgui.Button("Tutorial") && overlay.Tutorial != nil {
+				overlay.Tutorial.Show()
+			}
+
+			if scriptErrs := bridge.GetScriptErrors(); len(scriptErrs) > 0 {
+				imgui.Separator()
+				imgui.TextColored(imgui.NewVec4(1.0, 0.42, 0.42, 1.0), fmt.Sprintf("Script Errors (%d) - Engine running safely:", len(scriptErrs)))
+				for i := len(scriptErrs) - 1; i >= 0 && i >= len(scriptErrs)-3; i-- {
+					se := scriptErrs[i]
+					imgui.TextWrapped(fmt.Sprintf("  %s [%s]: %s", filepath.Base(se.ScriptPath), se.Hook, se.Message))
+				}
+				if imgui.Button("Clear Script Errors") {
+					bridge.ClearScriptErrors()
+				}
+			}
+			imgui.End()
 		}
-		imgui.End()
 	}
 
 	app := engine.NewGLApp(cfg, scene, overlay)
 	app.Context = glCtx
 
-	if serverOpts.Serve {
+	if opts.Serve {
 		agentServer := luabridge.NewAgentServer(bridge, console, scene.BaseScene, luabridge.AgentServerConfig{
-			Address: serverOpts.Address,
-			Token:   serverOpts.Token,
+			Address: opts.Address,
+			Token:   opts.Token,
 		})
-		agentServer.DeferFrameCapture = true
+		agentServer.DeferFrameCapture = !opts.Headless
 		if err := agentServer.Start(); err != nil {
-			log.Fatalf("failed to start agent bridge server: %v", err)
+			return fmt.Errorf("failed to start agent bridge server: %w", err)
 		}
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			_ = agentServer.Stop(ctx)
 		}()
-		app.OnPostRender = func() {
-			agentServer.FlushFrameCaptures(glCtx.FramebufferW, glCtx.FramebufferH)
+		if !opts.Headless {
+			app.OnPostRender = func() {
+				agentServer.FlushFrameCaptures(glCtx.FramebufferW, glCtx.FramebufferH)
+			}
 		}
 		console.Print(fmt.Sprintf("[AgentServer] Listening on %s (/rpc, /ws)", agentServer.BoundAddress()), luabridge.LineSystem)
 
-		if serverOpts.Tunnel {
+		if opts.Tunnel {
 			tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
 			defer tunnelCancel()
 			tm := luabridge.NewTunnelManager(console, luabridge.TunnelConfig{
@@ -320,9 +381,16 @@ func main() {
 		}
 	}
 
-	if err := app.Run(); err != nil {
-		log.Fatalf("demo runtime error: %v", err)
+	if opts.Headless {
+		log.Printf("[Headless] Running without a window; scene ticks and agent bridge are active. Press Ctrl+C to stop.")
+		runHeadlessLoop(ctx, scene.BaseScene, 0)
+		return nil
 	}
+
+	if err := app.Run(); err != nil {
+		return fmt.Errorf("demo runtime error: %w", err)
+	}
+	return nil
 }
 
 func degToRad(deg float32) float32 {

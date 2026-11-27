@@ -1,8 +1,14 @@
 package main
 
 import (
+	"context"
+	"io"
+	"net"
+	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/SamSoupSauce/project-engine/engine"
 )
@@ -64,6 +70,113 @@ func TestParseDemoServerFlags(t *testing.T) {
 	}
 	if !opts.Serve || !opts.Tunnel {
 		t.Fatalf("expected --tunnel to enable Serve and Tunnel, got %+v", opts)
+	}
+}
+
+func TestParseDemoServerFlagsHeadless(t *testing.T) {
+	opts, err := parseDemoServerFlags(nil)
+	if err != nil || opts.Headless {
+		t.Fatalf("headless should be off by default, got %+v, err=%v", opts, err)
+	}
+
+	opts, err = parseDemoServerFlags([]string{"--headless"})
+	if err != nil || !opts.Headless {
+		t.Fatalf("expected --headless to be parsed, got %+v, err=%v", opts, err)
+	}
+
+	opts, err = parseDemoServerFlags([]string{"--headless", "--serve", "--token="})
+	if err != nil || !opts.Headless || !opts.Serve {
+		t.Fatalf("expected --headless --serve to be accepted, got %+v, err=%v", opts, err)
+	}
+}
+
+func TestRunHeadlessLoopTicksSceneUntilCancel(t *testing.T) {
+	scene := engine.NewBaseScene("headless-test")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runHeadlessLoop(ctx, scene, 5*time.Millisecond)
+		close(done)
+	}()
+
+	time.Sleep(120 * time.Millisecond)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runHeadlessLoop did not stop after context cancellation")
+	}
+
+	if got := scene.GetTickCount(); got == 0 {
+		t.Fatal("expected headless loop to dispatch fixed ticks")
+	}
+	if scene.IsLoaded() {
+		t.Fatal("expected headless loop to unload the scene on exit")
+	}
+}
+
+func TestRunDemoHeadlessServesAgentRPC(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve loopback port: %v", err)
+	}
+	addr := ln.Addr().String()
+	_ = ln.Close()
+
+	repoRoot := filepath.Clean(filepath.Join("..", ".."))
+	opts := demoServerOptions{
+		Root:         repoRoot,
+		RootExplicit: true,
+		Headless:     true,
+		Serve:        true,
+		Address:      addr,
+		Token:        "headless-test-token",
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runDemo(ctx, opts) }()
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	var resp *http.Response
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, "http://"+addr+"/rpc",
+			strings.NewReader(`{"jsonrpc":"2.0","id":"t1","method":"engine.ping","params":{}}`))
+		if reqErr != nil {
+			t.Fatalf("failed to build RPC request: %v", reqErr)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Engine-Token", opts.Token)
+		resp, err = client.Do(req)
+		if err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if err != nil {
+		cancel()
+		t.Fatalf("headless agent bridge did not come up: %v", err)
+	}
+	defer resp.Body.Close()
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		t.Fatalf("failed to read RPC response: %v", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("engine.ping status = %d, body = %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), `"status":"ok"`) {
+		t.Fatalf("engine.ping body missing status ok: %s", body)
+	}
+
+	cancel()
+	select {
+	case runErr := <-done:
+		if runErr != nil {
+			t.Fatalf("runDemo returned error: %v", runErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runDemo did not shut down after context cancellation")
 	}
 }
 
