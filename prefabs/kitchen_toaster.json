@@ -1,0 +1,30 @@
+{
+  "name": "KitchenToaster",
+  "active": true,
+  "components": [
+    {
+      "name": "Transform",
+      "type": "*engine.TransformComponent",
+      "details": {
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 2.2, "y": 2.2, "z": 2.2 }
+      }
+    },
+    {
+      "name": "Mesh",
+      "type": "*engine.MeshComponent",
+      "details": {
+        "file_path": "assets/models/props/kitchen_toaster.gltf"
+      }
+    },
+    {
+      "name": "MeshRenderable",
+      "type": "*engine.MeshRenderable",
+      "details": {
+        "visible": true,
+        "wireframe": false
+      }
+    }
+  ]
+}

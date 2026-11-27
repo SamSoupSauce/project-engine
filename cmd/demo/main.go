@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/AllenDang/cimgui-go/imgui"
@@ -15,176 +16,23 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
-const rainbowCubeGLTFPath = "assets/models/props/rainbow_cube.gltf"
-
-// RainbowCubeDemoScene renders an OpenGL 3.3 Core rotating Rainbow Cube via
-// TransformComponent + MeshComponent + MeshRenderable alongside 2D HUD Renderable2D
-// elements and interactive camera/GLContext controls.
-type RainbowCubeDemoScene struct {
-	*engine.BaseScene
-
-	glCtx          *engine.GLContext
-	cubeObj        *engine.GameObject
-	cubeTransform  *engine.TransformComponent
-	cubeMesh       *engine.MeshComponent
-	cubeRenderable *engine.MeshRenderable
-	hudBarObj      *engine.GameObject
-	crosshair      *engine.GameObject
-
-	rotDeg        float32
-	rotSpeed      float32
-	autoRotate    bool
-	showWireframe bool
-
-	orbitYawDeg   float32
-	orbitPitchDeg float32
-	orbitDistance float32
-	hasLastMouse  bool
-	lastMouseX    float64
-	lastMouseY    float64
-}
-
-func newRainbowCubeDemoScene(glCtx *engine.GLContext) *RainbowCubeDemoScene {
-	base := engine.NewBaseScene("GLContext Demo Scene")
-	s := &RainbowCubeDemoScene{
-		BaseScene:     base,
-		glCtx:         glCtx,
-		rotSpeed:      48.0,
-		autoRotate:    true,
-		orbitYawDeg:   35.0,
-		orbitPitchDeg: 22.0,
-		orbitDistance: 4.2,
-	}
-
-	s.cubeObj = engine.NewGameObject("rainbow_cube", "RainbowCube")
-	s.cubeTransform = engine.NewTransformComponent()
-	s.cubeMesh = engine.NewMeshComponent(rainbowCubeGLTFPath)
-	if s.cubeMesh.LoadErr != nil {
-		log.Fatalf("failed loading %s: %v", rainbowCubeGLTFPath, s.cubeMesh.LoadErr)
-	}
-	s.cubeRenderable = engine.NewMeshRenderable()
-	s.cubeObj.AddComponent(s.cubeTransform)
-	s.cubeObj.AddComponent(s.cubeMesh)
-	s.cubeObj.AddComponent(s.cubeRenderable)
-	s.AddObject(s.cubeObj)
-
-	// 2D HUD accent bar (top-left) and centered crosshair rendered by OrthoBatcher2D.
-	s.hudBarObj = engine.NewGameObject("hud_accent", "HudAccentBar")
-	s.hudBarObj.EnsureTransform().SetPosition(engine.NewVector3(16, 16, 0))
-	bar := engine.NewRenderable2D(0, 220, 6)
-	bar.Anchor = engine.AnchorTopLeft
-	bar.Color = engine.NewColor(64, 210, 255, 220)
-	bar.ZIndex = 10
-	s.hudBarObj.AddComponent(bar)
-	s.AddObject(s.hudBarObj)
-
-	s.crosshair = engine.NewGameObject("hud_crosshair", "Crosshair")
-	s.crosshair.EnsureTransform()
-	dot := engine.NewRenderable2D(0, 6, 6)
-	dot.Anchor = engine.AnchorCenter
-	dot.Color = engine.NewColor(255, 255, 255, 190)
-	dot.ZIndex = 20
-	s.crosshair.AddComponent(dot)
-	s.AddObject(s.crosshair)
-
-	s.updateCameraPosition()
-	return s
-}
-
-func (s *RainbowCubeDemoScene) Init() {
-	s.BaseScene.Init()
-	if s.cubeRenderable != nil && s.cubeRenderable.ConstraintErr != nil {
-		log.Fatalf("demo cube renderable constraint error: %v", s.cubeRenderable.ConstraintErr)
-	}
-}
-
-func (s *RainbowCubeDemoScene) Update(dt float32) {
-	s.BaseScene.Update(dt)
-	if s.autoRotate && s.cubeTransform != nil {
-		s.rotDeg += s.rotSpeed * dt
-		if s.rotDeg >= 360 {
-			s.rotDeg -= 360
-		}
-		s.cubeTransform.SetRotation(engine.NewVector3(s.rotDeg*0.55, s.rotDeg, 0))
-	}
-	s.updateCameraPosition()
-}
-
-func (s *RainbowCubeDemoScene) Draw3D() {
-	aspect := float32(1280.0 / 720.0)
-	if s.glCtx != nil && s.glCtx.FramebufferH > 0 {
-		aspect = float32(s.glCtx.FramebufferW) / float32(s.glCtx.FramebufferH)
-	}
-
-	proj := mat4Perspective(s.Camera.Fovy, aspect, 0.1, 100.0)
-	view := mat4LookAt(s.Camera.Position, s.Camera.Target, s.Camera.Up)
-	viewProj := mat4Mul(proj, view)
-
-	if s.cubeRenderable != nil {
-		s.cubeRenderable.Wireframe = s.showWireframe
-	}
-	s.DrawMeshRenderables(viewProj)
-}
-
-func (s *RainbowCubeDemoScene) Unload() {
-	if s.cubeRenderable != nil {
-		s.cubeRenderable.DisposeGL()
-	}
-	s.BaseScene.Unload()
-}
-
-func (s *RainbowCubeDemoScene) onCursorMove(x, y float64) {
-	if s.glCtx == nil || !s.glCtx.CursorLocked {
-		s.hasLastMouse = false
-		return
-	}
-	if !s.hasLastMouse {
-		s.lastMouseX = x
-		s.lastMouseY = y
-		s.hasLastMouse = true
-		return
-	}
-	dx := float32(x - s.lastMouseX)
-	dy := float32(y - s.lastMouseY)
-	s.lastMouseX = x
-	s.lastMouseY = y
-
-	s.orbitYawDeg -= dx * 0.22
-	s.orbitPitchDeg += dy * 0.22
-	if s.orbitPitchDeg > 80 {
-		s.orbitPitchDeg = 80
-	} else if s.orbitPitchDeg < -80 {
-		s.orbitPitchDeg = -80
-	}
-}
-
-func (s *RainbowCubeDemoScene) updateCameraPosition() {
-	yaw := float64(degToRad(s.orbitYawDeg))
-	pitch := float64(degToRad(s.orbitPitchDeg))
-	d := float64(s.orbitDistance)
-
-	s.Camera.Position = engine.NewVector3(
-		float32(d*math.Cos(pitch)*math.Sin(yaw)),
-		float32(d*math.Sin(pitch)),
-		float32(d*math.Cos(pitch)*math.Cos(yaw)),
-	)
-	s.Camera.Target = engine.NewVector3(0, 0, 0)
-	s.Camera.Up = engine.NewVector3(0, 1, 0)
-	if s.Camera.Fovy <= 0 {
-		s.Camera.Fovy = 50
-	}
-}
-
 type demoServerOptions struct {
-	Serve   bool
-	Tunnel  bool
-	Address string
-	Token   string
+	Root         string
+	RootExplicit bool
+	Config       string
+	InitDirs     bool
+	Serve        bool
+	Tunnel       bool
+	Address      string
+	Token        string
 }
 
 func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	var opts demoServerOptions
+	fs.StringVar(&opts.Root, "root", ".", "Game/script/config/data root directory containing assets/, scripts/, prefabs/, config/")
+	fs.StringVar(&opts.Config, "config", "", "Optional path to engine.json configuration file")
+	fs.BoolVar(&opts.InitDirs, "init-dirs", false, "Initialize missing standard directory structure under --root on startup")
 	fs.BoolVar(&opts.Serve, "serve", false, "Start dual-transport HTTP JSON-RPC + WebSocket agent bridge server")
 	fs.BoolVar(&opts.Tunnel, "tunnel", false, "Auto-locate/download cloudflared and open a quick tunnel to --address (implies --serve)")
 	fs.StringVar(&opts.Address, "address", luabridge.DefaultAgentServerAddress, "Bind address for agent bridge server")
@@ -197,8 +45,11 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	}
 	tokenProvided := false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "token" {
+		switch f.Name {
+		case "token":
 			tokenProvided = true
+		case "root":
+			opts.RootExplicit = true
 		}
 	})
 	if opts.Serve && !tokenProvided {
@@ -213,8 +64,26 @@ func main() {
 		log.Fatalf("flag error: %v", err)
 	}
 
+	wsCfg, paths, err := engine.LoadWorkspaceConfig(serverOpts.Root, serverOpts.RootExplicit, serverOpts.Config)
+	if err != nil {
+		log.Fatalf("workspace config error: %v", err)
+	}
+	if serverOpts.InitDirs {
+		if created, initErr := engine.InitWorkspaceDirs(paths); initErr != nil {
+			log.Fatalf("failed to initialize workspace directories: %v", initErr)
+		} else if len(created) > 0 {
+			log.Printf("[Workspace] Initialized %d directory(s) under %s", len(created), paths.RootDir)
+		}
+	}
+	if err := engine.VerifyWorkspaceStructure(paths); err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	cfg := engine.DefaultGLWindowConfig()
-	cfg.Title = "Project Engine - GLContext OpenGL 3.3 Demo"
+	cfg.Title = wsCfg.WindowTitle
+	if cfg.Title == "" {
+		cfg.Title = "Project Engine - Kitchen Sink Demo"
+	}
 
 	// Instantiate GLContext as an engine.Component attached to a GameObject.
 	ctxObj := engine.NewGameObject("gl_context", "GLContextOwner")
@@ -226,15 +95,22 @@ func main() {
 	}
 	defer ctxObj.Destroy()
 
-	scene := newRainbowCubeDemoScene(glCtx)
+	scene := newKitchenSinkDemoScene(glCtx, paths)
 
 	bridge := luabridge.NewLuaBridge()
 	defer bridge.Close()
-	_, _ = bridge.LoadScriptsDir("scripts")
+	bridge.SetWorkspacePaths(paths)
 	bridge.RegisterGameObject("context", ctxObj)
-	bridge.RegisterGameObject("cube", scene.cubeObj)
+	for id, obj := range scene.propObjects {
+		bridge.RegisterGameObject(id, obj)
+	}
+	if scene.tileMapObj != nil {
+		bridge.RegisterGameObject("tiles", scene.tileMapObj)
+	}
 	bridge.RegisterGameObject("hud_accent", scene.hudBarObj)
+	bridge.RegisterGameObject("hud_status", scene.hudStatusObj)
 	bridge.RegisterGameObject("hud_crosshair", scene.crosshair)
+
 	console := luabridge.NewConsole(bridge)
 	console.BindScene(scene.BaseScene)
 	if err := console.RedirectStdio(); err == nil {
@@ -245,6 +121,34 @@ func main() {
 	overlay.SetConsole(console)
 	overlay.SetScriptEditor(bridge.ScriptEditor())
 	overlay.SetPrefabEditor(bridge.PrefabEditor())
+	overlay.Tutorial = engine.NewTutorialWindow(paths.TutorialStateFile)
+
+	bridge.Shell().RegisterNative(luabridge.ShellCommandDef{
+		Name:        "tutorial",
+		Description: "Opens the interactive Quick Start Tutorial window.",
+		Usage:       "tutorial",
+		Examples:    []string{"tutorial"},
+		GoHandler: func(_ luabridge.ExecutionContext) (string, error) {
+			if overlay.Tutorial != nil {
+				overlay.Tutorial.Show()
+			}
+			return "Opened Quick Start Tutorial window.", nil
+		},
+	})
+
+	// Graceful script loading: record errors without crashing startup or blocking valid scripts.
+	if _, loadErr := bridge.LoadScriptsDir(paths.ScriptsDir); loadErr != nil {
+		console.Print(fmt.Sprintf("[ScriptWarning] %v", loadErr), luabridge.LineError)
+	}
+	// Attach the Rotator custom Lua component to RainbowCube if registered.
+	if scene.cubeObj != nil && len(bridge.SearchComponents("Rotator")) > 0 {
+		if _, err := bridge.Execute("comp add rainbow_cube Rotator"); err == nil {
+			scene.autoRotate = false // driven by Rotator:tick
+		}
+	}
+	for _, w := range scene.warnings {
+		console.Print("[Scene] "+w, luabridge.LineInfo)
+	}
 
 	overlay.OnGameMouseButton = func(button glfw.MouseButton, action glfw.Action, _ glfw.ModifierKey) {
 		if button == glfw.MouseButtonLeft && action == glfw.Press && glCtx.Window != nil {
@@ -291,22 +195,54 @@ func main() {
 	}
 
 	overlay.DrawUI = func() {
-		if !imgui.Begin("GLContext & Rainbow Cube Demo") {
+		imgui.SetNextWindowSizeV(imgui.NewVec2(430, 360), imgui.CondFirstUseEver)
+		if !imgui.Begin("Project Engine - Kitchen Sink Demo") {
 			imgui.End()
 			return
 		}
 		imgui.TextUnformatted(fmt.Sprintf("Framebuffer: %dx%d | FPS: %.1f", glCtx.FramebufferW, glCtx.FramebufferH, glCtx.FPS))
-		imgui.TextUnformatted(fmt.Sprintf("Fullscreen: %v | Cursor Locked: %v", glCtx.IsFullscreen, glCtx.CursorLocked))
+		imgui.TextUnformatted(fmt.Sprintf("Root: %s", filepath.ToSlash(paths.RootDir)))
+		imgui.TextUnformatted(fmt.Sprintf("Tiles: %d (Floors: %d, Walls: %d, Pillars: %d, Stairs: %d) | Props: %d",
+			scene.tileStats.TotalTiles, scene.tileStats.FloorCount, scene.tileStats.WallCount,
+			scene.tileStats.PillarCount, scene.tileStats.StairCount, len(scene.propObjects)))
 		if tURL := overlay.GetTunnelURL(); tURL != "" {
 			imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Tunnel URL: %s", tURL))
 		}
 		imgui.TextUnformatted("Shortcuts: [F] Fullscreen  [L] Cursor Lock  [~] Lua Console  [Esc] Unlock/Quit")
 
-		imgui.Checkbox("Auto Rotate", &scene.autoRotate)
+		imgui.Separator()
+		imgui.Checkbox("Auto Rotate Cube", &scene.autoRotate)
 		imgui.SameLine()
 		imgui.Checkbox("Wireframe", &scene.showWireframe)
+		imgui.SameLine()
+		imgui.Checkbox("Show Tiles", &scene.showTiles)
+		imgui.Checkbox("Simulate Physics", &scene.simulatePhys)
 		imgui.SliderFloat("Rotation Speed", &scene.rotSpeed, -180.0, 180.0)
-		imgui.SliderFloat("Camera Distance", &scene.orbitDistance, 2.0, 10.0)
+		imgui.SliderFloat("Camera Distance", &scene.orbitDistance, 2.5, 18.0)
+
+		if imgui.Button("Overview Cam") {
+			scene.SetCameraPreset("overview")
+		}
+		imgui.SameLine()
+		if imgui.Button("Props Cam") {
+			scene.SetCameraPreset("props")
+		}
+		imgui.SameLine()
+		if imgui.Button("Stairs Cam") {
+			scene.SetCameraPreset("stairs")
+		}
+
+		if imgui.Button("Impulse Props") {
+			scene.PulseShowcaseProps()
+		}
+		imgui.SameLine()
+		if imgui.Button("Fracture Lamp") {
+			scene.FractureDemoLamp()
+		}
+		imgui.SameLine()
+		if imgui.Button("Reset Props") {
+			scene.ResetShowcaseProps()
+		}
 
 		if imgui.Button("Toggle Fullscreen") {
 			glCtx.ToggleFullscreen()
@@ -320,14 +256,20 @@ func main() {
 			}
 		}
 		imgui.SameLine()
-		if imgui.Button("Reset Cube") {
-			scene.rotDeg = 0
-			if scene.cubeTransform != nil {
-				scene.cubeTransform.SetRotation(engine.NewVector3(0, 0, 0))
+		if imgui.Button("Tutorial") && overlay.Tutorial != nil {
+			overlay.Tutorial.Show()
+		}
+
+		if scriptErrs := bridge.GetScriptErrors(); len(scriptErrs) > 0 {
+			imgui.Separator()
+			imgui.TextColored(imgui.NewVec4(1.0, 0.42, 0.42, 1.0), fmt.Sprintf("Script Errors (%d) - Engine running safely:", len(scriptErrs)))
+			for i := len(scriptErrs) - 1; i >= 0 && i >= len(scriptErrs)-3; i-- {
+				se := scriptErrs[i]
+				imgui.TextWrapped(fmt.Sprintf("  %s [%s]: %s", filepath.Base(se.ScriptPath), se.Hook, se.Message))
 			}
-			scene.orbitYawDeg = 35
-			scene.orbitPitchDeg = 22
-			scene.orbitDistance = 4.2
+			if imgui.Button("Clear Script Errors") {
+				bridge.ClearScriptErrors()
+			}
 		}
 		imgui.End()
 	}

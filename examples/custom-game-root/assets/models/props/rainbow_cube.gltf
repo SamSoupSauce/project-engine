@@ -1,0 +1,78 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "project-engine"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [0]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "RainbowCube",
+      "mesh": 0
+    }
+  ],
+  "meshes": [
+    {
+      "name": "RainbowCubeMesh",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "COLOR_0": 1
+          },
+          "indices": 2,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 36,
+      "type": "VEC3",
+      "min": [-0.5, -0.5, -0.5],
+      "max": [0.5, 0.5, 0.5]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 36,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5123,
+      "count": 36,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 432
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 432,
+      "byteLength": 432
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 864,
+      "byteLength": 72
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAA/AAAAvwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAPwAAAD8AAAC/AAAAPwAAAL8AAAC/AAAAvwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAL8AAAC/AAAAvwAAAL8AAAA/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAD8AAAC/AAAAPwAAAD8AAAA/AAAAvwAAAD8AAAC/AAAAvwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAA/AAAAPwAAAD8AAAC/AAAAvwAAAD8AAAC/AAAAvwAAAL8AAAC/AAAAPwAAAL8AAAC/AAAAPwAAAL8AAAA/AAAAPwAAAL8AAAA/AAAAvwAAAL8AAAA/AAAAvwAAAL8AAAC/AACAP83MTD7NzEw+AACAP2ZmZj/NzEw+zcxMPgAAgD/NzMw+zcxMPgAAgD/NzMw+zcxMPs3MTD8AAIA/AACAP83MTD7NzEw+ZmZmP83MTD4AAIA/zcxMPpqZmT4AAIA/zcxMPgAAgD9mZmY/zcxMPgAAgD9mZmY/AACAPwAAAD/NzEw+ZmZmP83MTD4AAIA/zcxMPs3MTD8AAIA/zcxMPgAAgD9mZmY/zcxMPpqZmT4AAIA/zcxMPpqZmT4AAIA/AACAP83MTD7NzEw+zcxMPs3MTD8AAIA/zcxMPgAAgD/NzMw+AACAP2ZmZj/NzEw+ZmZmP83MTD4AAIA/ZmZmP83MTD4AAIA/AACAPwAAAD/NzEw+zcxMPgAAgD/NzMw+zcxMPgAAgD9mZmY/zcxMPs3MTD8AAIA/zcxMPgAAgD/NzMw+zcxMPgAAgD/NzMw+AACAPwAAAD/NzEw+zcxMPgAAgD9mZmY/zcxMPpqZmT4AAIA/ZmZmP83MTD4AAIA/AACAP2ZmZj/NzEw+AACAP2ZmZj/NzEw+AACAP83MTD7NzEw+zcxMPpqZmT4AAIA/AAABAAIAAwAEAAUABgAHAAgACQAKAAsADAANAA4ADwAQABEAEgATABQAFQAWABcAGAAZABoAGwAcAB0AHgAfACAAIQAiACMA",
+      "byteLength": 936
+    }
+  ]
+}

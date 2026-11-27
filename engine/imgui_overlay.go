@@ -23,6 +23,7 @@ type ImGuiOverlay struct {
 	Console      *DebugConsoleWindow
 	ScriptEditor *ScriptEditorWindow
 	PrefabEditor *PrefabEditorWindow
+	Tutorial     *TutorialWindow
 	ShowDemo     bool
 	ShowMetrics  bool
 
@@ -261,6 +262,10 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 
 	if o.PrefabEditor != nil {
 		o.PrefabEditor.Draw()
+	}
+
+	if o.Tutorial != nil {
+		o.Tutorial.Draw()
 	}
 
 	if o.DrawUI != nil {

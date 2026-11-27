@@ -1,0 +1,7 @@
+{
+  "assets_dir": "assets",
+  "scripts_dir": "scripts",
+  "prefabs_dir": "prefabs",
+  "config_dir": "config",
+  "window_title": "Project Engine - Kitchen Sink Demo"
+}
