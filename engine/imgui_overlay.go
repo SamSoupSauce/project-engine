@@ -126,6 +126,7 @@ func (o *ImGuiOverlay) InitHeadless(width, height float32) {
 	imgui.SetCurrentContext(o.ctx)
 
 	io := imgui.CurrentIO()
+	io.SetIniFilename("")
 	io.SetBackendFlags(imgui.BackendFlagsRendererHasTextures)
 	io.SetDisplaySize(imgui.NewVec2(width, height))
 	io.SetDeltaTime(1.0 / 60.0)

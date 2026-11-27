@@ -81,3 +81,14 @@ All directory fields may be relative to `root_dir` or absolute paths.
 
 ### Startup Folder Verification
 On boot, `engine.VerifyWorkspaceStructure` checks that `root`, `assets`, `scripts`, `prefabs`, and `config` exist as directories. If any are missing, the engine exits with a clear diagnostic listing every missing path and instructing you to pass `--root <dir>` or `--init-dirs`.
+
+---
+
+## 5. Multi-Platform CI & GitHub Releases
+
+The GitHub Actions workflow [`.github/workflows/ci-release.yml`](../.github/workflows/ci-release.yml) builds and packages standalone distributions across 6 platform targets:
+- **macOS:** `darwin/arm64` (Apple Silicon) & `darwin/amd64` (Intel)
+- **Windows:** `windows/amd64` (x64) & `windows/arm64` (ARM64)
+- **Ubuntu LTS:** `linux/amd64` (x64) & `linux/arm64` (ARM64)
+
+Pushing a version tag (`git tag -a v0.1.0 -m "Release v0.1.0" && git push origin v0.1.0`) automatically runs the matrix and attaches all 6 packaged archives to the GitHub Release.

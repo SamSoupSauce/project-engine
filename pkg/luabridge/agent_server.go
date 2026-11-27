@@ -493,6 +493,7 @@ func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessa
 		uptime := time.Since(s.StartedAt)
 		return map[string]any{
 			"status":       "ok",
+			"version":      engine.Version,
 			"uptime_ms":    uptime.Milliseconds(),
 			"uptime_sec":   uptime.Seconds(),
 			"tick":         tick,

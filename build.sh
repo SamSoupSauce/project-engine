@@ -10,11 +10,13 @@ esac
 
 OUT_DIR="${OUT_DIR:-bin}"
 DIST_DIR="${DIST_DIR:-dist/project-engine}"
+VERSION="${VERSION:-0.1.0}"
 TARGET="${OUT_DIR}/project-engine${EXE_EXT}"
+LDFLAGS="-X github.com/SamSoupSauce/project-engine/engine.Version=${VERSION}"
 
 mkdir -p "${OUT_DIR}"
-echo "Building engine executable -> ${TARGET}"
-go build -o "${TARGET}" ./cmd/demo
+echo "Building engine executable -> ${TARGET} (version ${VERSION})"
+go build -ldflags "${LDFLAGS}" -o "${TARGET}" ./cmd/demo
 
 for arg in "$@"; do
   case "$arg" in

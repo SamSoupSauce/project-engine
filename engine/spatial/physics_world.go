@@ -4,7 +4,8 @@ package spatial
 #cgo CFLAGS: -I${SRCDIR}/thirdparty/joltc/include -I${SRCDIR}/../../native
 #cgo CXXFLAGS: -std=c++17 -I${SRCDIR}/thirdparty/joltc/include -I${SRCDIR}/../../native
 #cgo windows,amd64 LDFLAGS: ${SRCDIR}/thirdparty/joltc/lib/windows/amd64/libjoltc.a -lstdc++ -lm
-#cgo linux,amd64 LDFLAGS: -ljoltc -lstdc++ -lm -lpthread
+#cgo windows,arm64 LDFLAGS: -ljoltc -lstdc++ -lm
+#cgo linux LDFLAGS: -ljoltc -lstdc++ -lm -lpthread
 #cgo darwin LDFLAGS: -ljoltc -lstdc++ -lm
 
 #include <stdlib.h>
