@@ -335,6 +335,11 @@ func (b *LuaBridge) resolveHelpArgWithError(arg lua.LValue, exprHint string) (st
 		if txt, ok := b.formatNamedTypeHelp(topic); ok {
 			return txt, nil
 		}
+		if b.shell != nil {
+			if def, ok := b.shell.Get(topic); ok {
+				return formatShellCommandHelp(def), nil
+			}
+		}
 		if obj := b.findSceneOrRegisteredObject(topic); obj != nil {
 			return FormatObjectHelp(obj), nil
 		}
