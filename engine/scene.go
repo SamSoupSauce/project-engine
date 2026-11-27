@@ -17,9 +17,11 @@ type BaseScene struct {
 	Renderer       *Renderer
 	Batcher2D      *OrthoBatcher2D
 
-	loaded      bool
-	tickAccumMs float64
-	mu          sync.RWMutex
+	loaded       bool
+	tickAccumMs  float64
+	tickCount    uint64
+	preTickHooks []func(dtMs int)
+	mu           sync.RWMutex
 }
 
 // NewBaseScene creates an initialized BaseScene with an empty root node and default 3D camera.
@@ -109,11 +111,41 @@ func (s *BaseScene) Update(dt float32) {
 	}
 }
 
+// AddPreTickHook registers a callback invoked synchronously on the main loop at the top of every Tick().
+func (s *BaseScene) AddPreTickHook(fn func(dtMs int)) {
+	if s == nil || fn == nil {
+		return
+	}
+	s.mu.Lock()
+	s.preTickHooks = append(s.preTickHooks, fn)
+	s.mu.Unlock()
+}
+
+// GetTickCount returns the total number of simulation ticks executed by this scene.
+func (s *BaseScene) GetTickCount() uint64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.tickCount
+}
+
 // Tick executes a single fixed-rate simulation step in milliseconds across all spawned objects.
 func (s *BaseScene) Tick(dtMs int) {
 	if !s.IsLoaded() {
 		return
 	}
+	s.mu.Lock()
+	s.tickCount++
+	hooks := make([]func(int), len(s.preTickHooks))
+	copy(hooks, s.preTickHooks)
+	s.mu.Unlock()
+
+	for _, hook := range hooks {
+		hook(dtMs)
+	}
+
 	for _, obj := range s.collectAllObjects(true) {
 		if obj.Active && obj.IsSpawned() {
 			obj.DispatchTick(dtMs)

@@ -45,6 +45,7 @@ type Console struct {
 	TeeStdio     bool
 
 	mu          sync.RWMutex
+	logSinks    []func(line string)
 	stdioMu     sync.Mutex
 	stdioActive bool
 	origStdout  interface{}
@@ -78,6 +79,16 @@ func NewConsole(bridge *LuaBridge) *Console {
 	return c
 }
 
+// AddLogSink registers a callback invoked for each line appended via Console.Print.
+func (c *Console) AddLogSink(fn func(line string)) {
+	if c == nil || fn == nil {
+		return
+	}
+	c.mu.Lock()
+	c.logSinks = append(c.logSinks, fn)
+	c.mu.Unlock()
+}
+
 // Print appends message lines (splitting multi-line text) to the console safely across goroutines.
 func (c *Console) Print(text string, lineType LineType) {
 	ts := time.Now().Format("15:04:05")
@@ -94,7 +105,15 @@ func (c *Console) Print(text string, lineType LineType) {
 		c.Output = c.Output[len(c.Output)-c.MaxLines:]
 	}
 	c.ScrollOffset = 0
+	sinks := make([]func(string), len(c.logSinks))
+	copy(sinks, c.logSinks)
 	c.mu.Unlock()
+
+	for _, sink := range sinks {
+		for _, line := range parts {
+			sink(line)
+		}
+	}
 }
 
 // SubmitInput executes the current input buffer, records history, and returns the response.

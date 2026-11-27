@@ -7,12 +7,13 @@ import (
 // GLApp hosts a GLContext component, OpenGL 3.3 Core window, active Scene,
 // 2D orthographic batcher, and ImGuiOverlay.
 type GLApp struct {
-	Config    GLWindowConfig
-	Context   *GLContext
-	Window    *glfw.Window
-	Batcher2D *OrthoBatcher2D
-	Overlay   *ImGuiOverlay
-	Scene     Scene
+	Config       GLWindowConfig
+	Context      *GLContext
+	Window       *glfw.Window
+	Batcher2D    *OrthoBatcher2D
+	Overlay      *ImGuiOverlay
+	Scene        Scene
+	OnPostRender func()
 }
 
 // NewGLApp creates an initialized GLApp wrapper ready to open a GLFW window.
@@ -110,6 +111,10 @@ func (a *GLApp) StepFrame(dt float32) {
 		a.Overlay.NewFrame()
 		a.Overlay.DrawDebugWindows()
 		a.Overlay.Render()
+	}
+
+	if a.OnPostRender != nil {
+		a.OnPostRender()
 	}
 
 	a.Context.EndFrame()

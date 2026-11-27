@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"time"
 
 	"github.com/AllenDang/cimgui-go/imgui"
 	"github.com/SamSoupSauce/project-engine/engine"
@@ -171,7 +175,39 @@ func (s *RainbowCubeDemoScene) updateCameraPosition() {
 	}
 }
 
+type demoServerOptions struct {
+	Serve   bool
+	Address string
+	Token   string
+}
+
+func parseDemoServerFlags(args []string) (demoServerOptions, error) {
+	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
+	var opts demoServerOptions
+	fs.BoolVar(&opts.Serve, "serve", false, "Start dual-transport HTTP JSON-RPC + WebSocket agent bridge server")
+	fs.StringVar(&opts.Address, "address", luabridge.DefaultAgentServerAddress, "Bind address for agent bridge server")
+	fs.StringVar(&opts.Token, "token", "", "Required authentication token when --serve is enabled (may be empty)")
+	if err := fs.Parse(args); err != nil {
+		return opts, err
+	}
+	tokenProvided := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "token" {
+			tokenProvided = true
+		}
+	})
+	if opts.Serve && !tokenProvided {
+		return opts, fmt.Errorf("--serve requires --token to be explicitly provided (e.g. --token=\"\" or --token=secret)")
+	}
+	return opts, nil
+}
+
 func main() {
+	serverOpts, err := parseDemoServerFlags(os.Args[1:])
+	if err != nil {
+		log.Fatalf("flag error: %v", err)
+	}
+
 	cfg := engine.DefaultGLWindowConfig()
 	cfg.Title = "Project Engine - GLContext OpenGL 3.3 Demo"
 
@@ -290,6 +326,27 @@ func main() {
 
 	app := engine.NewGLApp(cfg, scene, overlay)
 	app.Context = glCtx
+
+	if serverOpts.Serve {
+		agentServer := luabridge.NewAgentServer(bridge, console, scene.BaseScene, luabridge.AgentServerConfig{
+			Address: serverOpts.Address,
+			Token:   serverOpts.Token,
+		})
+		agentServer.DeferFrameCapture = true
+		if err := agentServer.Start(); err != nil {
+			log.Fatalf("failed to start agent bridge server: %v", err)
+		}
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = agentServer.Stop(ctx)
+		}()
+		app.OnPostRender = func() {
+			agentServer.FlushFrameCaptures(glCtx.FramebufferW, glCtx.FramebufferH)
+		}
+		console.Print(fmt.Sprintf("[AgentServer] Listening on %s (/rpc, /ws)", agentServer.BoundAddress()), luabridge.LineSystem)
+	}
+
 	if err := app.Run(); err != nil {
 		log.Fatalf("demo runtime error: %v", err)
 	}
