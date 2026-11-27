@@ -3,6 +3,7 @@ package luabridge
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
@@ -22,6 +23,10 @@ func (b *LuaBridge) registerEngineTypes() {
 	b.registerRenderableType()
 	b.registerRendererType()
 	b.registerInteractiveType()
+	b.registerHazardTypes()
+	b.registerComponentTypes()
+	b.wrapBuiltinComponentMetatables()
+	b.registerComponentFactory()
 
 	b.L.SetGlobal("new_game_object", b.L.NewFunction(func(L *lua.LState) int {
 		id := L.CheckString(1)
@@ -35,7 +40,7 @@ func (b *LuaBridge) registerGameObjectType() {
 	mt := b.L.NewTypeMetatable(luaGameObjectTypeName)
 
 	methods := b.L.NewTable()
-	for name, fn := range gameObjectMethods() {
+	for name, fn := range gameObjectMethods(b) {
 		b.L.SetField(methods, name, b.L.NewFunction(fn))
 	}
 
@@ -57,14 +62,6 @@ func (b *LuaBridge) registerGameObjectType() {
 			L.Push(lua.LBool(obj.Active))
 		case "scene", "Scene":
 			pushScene(L, obj.GetScene())
-		case "position", "Position":
-			L.Push(vec3ToTable(L, obj.Transform.Position))
-		case "rotation", "Rotation":
-			L.Push(vec3ToTable(L, obj.Transform.Rotation))
-		case "scale", "Scale":
-			L.Push(vec3ToTable(L, obj.Transform.Scale))
-		case "transform", "Transform":
-			L.Push(transformToTable(L, obj.Transform))
 		default:
 			L.Push(lua.LNil)
 		}
@@ -80,12 +77,6 @@ func (b *LuaBridge) registerGameObjectType() {
 			obj.Name = L.CheckString(3)
 		case "active", "Active":
 			obj.Active = L.CheckBool(3)
-		case "position", "Position":
-			obj.Transform.Position = tableToVec3(L, L.CheckTable(3))
-		case "rotation", "Rotation":
-			obj.Transform.Rotation = tableToVec3(L, L.CheckTable(3))
-		case "scale", "Scale":
-			obj.Transform.Scale = tableToVec3(L, L.CheckTable(3))
 		default:
 			L.RaiseError("GameObject has no writable property %q", key)
 		}
@@ -107,12 +98,12 @@ func (b *LuaBridge) registerGameObjectType() {
 
 	b.L.SetField(mt, "__tostring", b.L.NewFunction(func(L *lua.LState) int {
 		obj := checkGameObject(L, 1)
-		L.Push(lua.LString(fmt.Sprintf("GameObject(%s:%s)", obj.ID, obj.Name)))
+		L.Push(lua.LString(SerializeGameObjectJSON(obj)))
 		return 1
 	}))
 }
 
-func gameObjectMethods() map[string]lua.LGFunction {
+func gameObjectMethods(b *LuaBridge) map[string]lua.LGFunction {
 	return map[string]lua.LGFunction{
 		"GetID": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
@@ -138,41 +129,6 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			obj := checkGameObject(L, 1)
 			obj.Active = L.CheckBool(2)
 			return 0
-		},
-		"GetPosition": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Position))
-			return 1
-		},
-		"SetPosition": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Position = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetRotation": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Rotation))
-			return 1
-		},
-		"SetRotation": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Rotation = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetScale": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(vec3ToTable(L, obj.Transform.Scale))
-			return 1
-		},
-		"SetScale": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			obj.Transform.Scale = parseVec3Args(L, 2)
-			return 0
-		},
-		"GetTransform": func(L *lua.LState) int {
-			obj := checkGameObject(L, 1)
-			L.Push(transformToTable(L, obj.Transform))
-			return 1
 		},
 		"GetWorldTransform": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
@@ -266,6 +222,9 @@ func gameObjectMethods() map[string]lua.LGFunction {
 		},
 		"AddRenderable": func(L *lua.LState) int {
 			obj := checkGameObject(L, 1)
+			if obj.GetTransformComponent() == nil {
+				L.RaiseError("Renderable requires an attached Transform component on GameObject %q", obj.ID)
+			}
 			meshID := L.OptString(2, "cube")
 			materialID := L.OptString(3, "default")
 			scriptName := L.OptString(4, "")
@@ -273,6 +232,193 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			r.ScriptName = scriptName
 			obj.AddComponent(r)
 			pushRenderable(L, r)
+			return 1
+		},
+		"GetComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			comp := findComponentByName(obj, resolveComponentArg(L, 2))
+			if comp == nil {
+				L.Push(lua.LNil)
+				return 1
+			}
+			pushEngineComponent(L, comp)
+			return 1
+		},
+		"HasComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			L.Push(lua.LBool(findComponentByName(obj, resolveComponentArg(L, 2)) != nil))
+			return 1
+		},
+		"GetComponents": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			tbl := L.NewTable()
+			idx := 1
+			for _, c := range obj.Components {
+				if c == nil {
+					continue
+				}
+				if pushEngineComponent(L, c) {
+					val := L.Get(-1)
+					L.Pop(1)
+					tbl.RawSetInt(idx, val)
+					idx++
+				} else {
+					L.Pop(1)
+				}
+			}
+			L.Push(tbl)
+			return 1
+		},
+		"AddComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			compName := resolveComponentArg(L, 2)
+			canon := resolveComponentAlias(compName)
+			switch canon {
+			case "Transform":
+				if existing := obj.GetTransformComponent(); existing != nil {
+					pushTransformComponent(L, existing)
+					return 1
+				}
+				tc := engine.NewTransformComponent()
+				if L.GetTop() >= 5 {
+					tc.SetPosition(engine.NewVector3(float32(L.CheckNumber(3)), float32(L.CheckNumber(4)), float32(L.CheckNumber(5))))
+				}
+				obj.AddComponent(tc)
+				pushTransformComponent(L, tc)
+				return 1
+			case "Mesh":
+				path := L.OptString(3, "")
+				mc := engine.NewMeshComponent(path)
+				if mc.LoadErr != nil {
+					L.RaiseError("Mesh failed to load %q: %v", path, mc.LoadErr)
+				}
+				obj.AddComponent(mc)
+				pushMeshComponent(L, mc)
+				return 1
+			case "MeshRenderable":
+				if obj.GetTransformComponent() == nil {
+					L.RaiseError("MeshRenderable requires an attached Transform component on GameObject %q", obj.ID)
+				}
+				if obj.GetMeshComponent() == nil || obj.GetMeshComponent().Asset == nil {
+					L.RaiseError("MeshRenderable requires an attached loaded Mesh component on GameObject %q", obj.ID)
+				}
+				mr := engine.NewMeshRenderable()
+				obj.AddComponent(mr)
+				pushMeshRenderable(L, mr)
+				return 1
+			case "Renderable":
+				if obj.GetTransformComponent() == nil {
+					L.RaiseError("Renderable requires an attached Transform component on GameObject %q", obj.ID)
+				}
+				meshID := L.OptString(3, "cube")
+				materialID := L.OptString(4, "default")
+				scriptName := L.OptString(5, "")
+				r := engine.NewRenderable(meshID, materialID)
+				r.ScriptName = scriptName
+				obj.AddComponent(r)
+				pushRenderable(L, r)
+				return 1
+			case "Renderable2D":
+				texID := uint32(L.OptInt(3, 0))
+				w := float32(L.OptNumber(4, 64))
+				h := float32(L.OptNumber(5, 64))
+				r2d := engine.NewRenderable2D(texID, w, h)
+				obj.AddComponent(r2d)
+				pushRenderable2D(L, r2d)
+				return 1
+			case "InteractiveComponent":
+				name := L.OptString(3, obj.Name)
+				isDyn := L.OptBool(4, false)
+				ic := spatial.NewInteractiveComponent(name, isDyn)
+				obj.AddComponent(ic)
+				pushInteractive(L, ic)
+				return 1
+			case "FractureComponent":
+				mode := spatial.FractureMode(L.OptInt(3, int(spatial.FractureSplinter)))
+				tier := spatial.PropIntegrityTier(L.OptInt(4, int(spatial.IntegrityStandard)))
+				hp := float32(L.OptNumber(5, 15.0))
+				fc := spatial.NewFractureComponent(mode, tier, hp)
+				obj.AddComponent(fc)
+				pushFracture(L, fc)
+				return 1
+			default:
+				if b != nil {
+					if def := b.getCustomComponentDef(compName); def != nil {
+						var overrides *lua.LTable
+						if L.GetTop() >= 3 && L.Get(3) != lua.LNil {
+							overrides = L.CheckTable(3)
+						}
+						lc := b.newLuaComponent(def, overrides)
+						obj.AddComponent(lc)
+						pushLuaComponent(L, lc)
+						return 1
+					}
+				}
+				L.RaiseError("unsupported component type %q for AddComponent", compName)
+				return 0
+			}
+		},
+		"RemoveComponent": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			compName := resolveComponentArg(L, 2)
+			rt := componentReflectType(compName)
+			if rt != nil {
+				L.Push(lua.LBool(obj.RemoveComponent(rt)))
+				return 1
+			}
+			if b != nil {
+				if def := b.getCustomComponentDef(compName); def != nil {
+					removed := obj.RemoveComponentWhere(func(c engine.Component) bool {
+						lc, ok := c.(*LuaComponent)
+						return ok && strings.EqualFold(lc.TypeName, def.Name)
+					})
+					L.Push(lua.LBool(removed))
+					return 1
+				}
+			}
+			L.Push(lua.LFalse)
+			return 1
+		},
+		"RegisterHookListener": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			hookName := L.CheckString(2)
+			listener := L.Get(3)
+			if listener == lua.LNil {
+				L.ArgError(3, "hook listener must not be nil")
+				return 0
+			}
+			if b == nil {
+				return 0
+			}
+			if err := b.registerHookListenerValue(obj, hookName, listener); err != nil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			return 0
+		},
+		"CallHook": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			hookName := L.CheckString(2)
+			if b == nil {
+				L.Push(lua.LNumber(0))
+				return 1
+			}
+			top := L.GetTop()
+			args := make([]lua.LValue, 0, top)
+			for i := 3; i <= top; i++ {
+				args = append(args, L.Get(i))
+			}
+			count, err := b.callObjectHook(L, obj, hookName, args)
+			if err != nil {
+				L.RaiseError("%s", err.Error())
+				return 0
+			}
+			L.Push(lua.LNumber(count))
+			return 1
+		},
+		"Help": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			L.Push(lua.LString(FormatObjectHelp(obj)))
 			return 1
 		},
 		"GetInteractive": func(L *lua.LState) int {
@@ -287,6 +433,21 @@ func gameObjectMethods() map[string]lua.LGFunction {
 			ic := spatial.NewInteractiveComponent(name, isDynamic)
 			obj.AddComponent(ic)
 			pushInteractive(L, ic)
+			return 1
+		},
+		"GetFracture": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			pushFracture(L, spatial.FindFractureComponent(obj))
+			return 1
+		},
+		"AddFracture": func(L *lua.LState) int {
+			obj := checkGameObject(L, 1)
+			mode := spatial.FractureMode(L.OptInt(2, int(spatial.FractureSplinter)))
+			tier := spatial.PropIntegrityTier(L.OptInt(3, int(spatial.IntegrityStandard)))
+			hp := float32(L.OptNumber(4, 15.0))
+			fc := spatial.NewFractureComponent(mode, tier, hp)
+			obj.AddComponent(fc)
+			pushFracture(L, fc)
 			return 1
 		},
 		"GetRenderable2D": func(L *lua.LState) int {

@@ -19,13 +19,13 @@ func TestLuaJITPhysicsFFIRaycastImpulseAndVelocity(t *testing.T) {
 
 	// Static target box at z=5
 	targetObj := engine.NewGameObject("target", "TargetBox")
-	targetObj.Transform.Position = engine.NewVector3(0, 1, 5)
+	targetObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1, 5))
 	targetRB := spatial.NewRigidBody("target", world, engine.BodyStatic, spatial.BoxShapeDesc(1, 1, 1))
 	targetObj.AddComponent(targetRB)
 
 	// Dynamic crate at (10, 1, 0) with zero gravity for clean impulse/velocity verification
 	crateObj := engine.NewGameObject("crate", "Crate")
-	crateObj.Transform.Position = engine.NewVector3(10, 1, 0)
+	crateObj.EnsureTransform().SetPosition(engine.NewVector3(10, 1, 0))
 	crateRB := spatial.NewRigidBody("crate", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.5, 0.5, 0.5))
 	crateRB.GravityFactor = 0
 	crateRB.LinearDamping = 0
@@ -114,8 +114,8 @@ end
 	if vel.Z < 11.5 || vel.Z > 12.5 {
 		t.Fatalf("expected Z velocity ~12.0 after LuaJIT SetVelocity, got %+v", vel)
 	}
-	if crateObj.Transform.Position.Z <= 0.1 {
-		t.Fatalf("expected GameObject transform Z to sync after SetVelocity, got %+v", crateObj.Transform.Position)
+	if crateObj.GetWorldTransform().Position.Z <= 0.1 {
+		t.Fatalf("expected GameObject transform Z to sync after SetVelocity, got %+v", crateObj.GetWorldTransform().Position)
 	}
 }
 
@@ -145,11 +145,11 @@ func TestLuaJITPhysicsZeroAllocationAndJITTraceAudit(t *testing.T) {
 	defer world.Destroy()
 
 	target := engine.NewGameObject("wall", "Wall")
-	target.Transform.Position = engine.NewVector3(0, 1, 5)
+	target.EnsureTransform().SetPosition(engine.NewVector3(0, 1, 5))
 	target.AddComponent(spatial.NewRigidBody("wall", world, engine.BodyStatic, spatial.BoxShapeDesc(4, 4, 0.5)))
 
 	dyn := engine.NewGameObject("dyn", "Dyn")
-	dyn.Transform.Position = engine.NewVector3(5, 1, 0)
+	dyn.EnsureTransform().SetPosition(engine.NewVector3(5, 1, 0))
 	dynRB := spatial.NewRigidBody("dyn", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.5, 0.5, 0.5))
 	dynRB.GravityFactor = 0
 	dyn.AddComponent(dynRB)
@@ -250,14 +250,14 @@ func TestFFIJoltCastRayLayerMaskUserDataAndReticleHover(t *testing.T) {
 
 	// Static room wall on LayerNonMoving (mask bit 0 = 1) with entity ID 101
 	wallObj := engine.NewGameObject("wall", "RoomWall")
-	wallObj.Transform.Position = engine.NewVector3(0, 1.5, 9)
+	wallObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1.5, 9))
 	wallRB := spatial.NewRigidBody("wall", world, engine.BodyStatic, spatial.BoxShapeDesc(4, 3, 0.5))
 	wallRB.UserData = 101
 	wallObj.AddComponent(wallRB)
 
 	// Interactable prop on LayerInteractable (mask bit 2 = 4) with entity ID 4242
 	propObj := engine.NewGameObject("clock", "AlarmClock")
-	propObj.Transform.Position = engine.NewVector3(0, 1.5, 4)
+	propObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1.5, 4))
 	propRB := spatial.NewRigidBody("clock", world, engine.BodyDynamic, spatial.BoxShapeDesc(0.5, 0.5, 0.5))
 	propRB.GravityFactor = 0
 	propRB.UserData = 4242
@@ -336,7 +336,7 @@ func TestFFIJoltCastRayAndReticleZeroAllocationBenchmark(t *testing.T) {
 	defer world.Destroy()
 
 	propObj := engine.NewGameObject("prop", "Prop")
-	propObj.Transform.Position = engine.NewVector3(0, 1.5, 5)
+	propObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1.5, 5))
 	propRB := spatial.NewRigidBody("prop", world, engine.BodyStatic, spatial.BoxShapeDesc(1, 1, 1))
 	propRB.UserData = 777
 	propObj.AddComponent(propRB)

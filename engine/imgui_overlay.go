@@ -19,9 +19,10 @@ type ImGuiOverlay struct {
 	headless    bool
 	lastTime    float64
 
-	Console     *DebugConsoleWindow
-	ShowDemo    bool
-	ShowMetrics bool
+	Console      *DebugConsoleWindow
+	ScriptEditor *ScriptEditorWindow
+	ShowDemo     bool
+	ShowMetrics  bool
 
 	MetricsFPS  float32
 	SceneName   string
@@ -144,6 +145,15 @@ func (o *ImGuiOverlay) SetConsole(backend DebugConsoleBackend) {
 	o.Console = NewDebugConsoleWindow(backend)
 }
 
+// SetScriptEditor attaches a ScriptEditorWindow backed by backend to the overlay.
+func (o *ImGuiOverlay) SetScriptEditor(backend ScriptEditorBackend) {
+	if backend == nil {
+		o.ScriptEditor = nil
+		return
+	}
+	o.ScriptEditor = NewScriptEditorWindow(backend)
+}
+
 // NewFrame starts a new Dear ImGui frame across OpenGL 3, GLFW, and ImGui core.
 func (o *ImGuiOverlay) NewFrame() {
 	if !o.initialized {
@@ -206,6 +216,10 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 
 	if o.Console != nil {
 		o.Console.Draw()
+	}
+
+	if o.ScriptEditor != nil {
+		o.ScriptEditor.Draw()
 	}
 
 	if o.DrawUI != nil {

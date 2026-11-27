@@ -39,6 +39,15 @@ type DebugConsoleBackend interface {
 	GetHistory() []string
 }
 
+// DebugConsolePicker is an optional interface implemented by backends supporting
+// viewport object picking and live selected-object display.
+type DebugConsolePicker interface {
+	IsPickMode() bool
+	SetPickMode(enabled bool)
+	GetPickedSummary() (id string, name string, active bool)
+	ClearPicked()
+}
+
 // DebugConsoleWindow renders a toggleable Dear ImGui developer console backed by
 // a DebugConsoleBackend (such as pkg/luabridge.Console).
 type DebugConsoleWindow struct {
@@ -125,6 +134,25 @@ func (c *DebugConsoleWindow) Draw() {
 		}
 		imgui.SameLine()
 		imgui.Checkbox("Auto-scroll", &c.AutoScroll)
+		if picker, ok := c.Backend.(DebugConsolePicker); ok {
+			imgui.SameLine()
+			pickActive := picker.IsPickMode()
+			btnLabel := "Pick Object"
+			if pickActive {
+				btnLabel = "Pick Mode: ON"
+			}
+			if imgui.Button(btnLabel) {
+				picker.SetPickMode(!pickActive)
+			}
+			if id, name, hasPicked := picker.GetPickedSummary(); hasPicked {
+				imgui.SameLine()
+				imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Selected: %s (%s)", name, id))
+				imgui.SameLine()
+				if imgui.Button("Unpick") {
+					picker.ClearPicked()
+				}
+			}
+		}
 		imgui.Separator()
 
 		// Reserve space for separator and input bar at bottom
@@ -156,7 +184,7 @@ func (c *DebugConsoleWindow) Draw() {
 		}
 
 		flags := imgui.InputTextFlagsEnterReturnsTrue | imgui.InputTextFlagsCallbackHistory
-		submitted := imgui.InputTextWithHint("##ConsoleInput", "Enter Lua command or 'help'...", &c.inputBuf, flags, c.historyCallback)
+		submitted := imgui.InputTextWithHint("##ConsoleInput", "Enter Lua command or 'help()'...", &c.inputBuf, flags, c.historyCallback)
 		imgui.SameLine()
 		if imgui.Button("Run") {
 			submitted = true

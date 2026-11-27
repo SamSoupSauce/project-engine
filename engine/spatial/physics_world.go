@@ -117,6 +117,7 @@ type PhysicsWorld struct {
 	characters   []*CharacterController
 	syncTargets  map[uint32]*engine.GameObject
 	activeGrab   *PhysicsGrab
+	joints       []*BreakableJoint
 
 	mu     sync.Mutex
 	closed bool
@@ -232,6 +233,10 @@ func (w *PhysicsWorld) Destroy() {
 	grab := w.activeGrab
 	w.activeGrab = nil
 
+	joints := make([]*BreakableJoint, len(w.joints))
+	copy(joints, w.joints)
+	w.joints = nil
+
 	staticIDs := make([]uint32, len(w.staticBodies))
 	copy(staticIDs, w.staticBodies)
 	w.staticBodies = nil
@@ -243,6 +248,17 @@ func (w *PhysicsWorld) Destroy() {
 	w.bodyIface = nil
 	w.jobSystem = nil
 	w.mu.Unlock()
+
+	for _, j := range joints {
+		if j != nil && j.constraint != nil && sys != nil {
+			C.JPH_PhysicsSystem_RemoveConstraint(sys, j.constraint)
+			C.JPH_Constraint_Destroy(j.constraint)
+			j.constraint = nil
+			j.rawSlider = nil
+			j.rawHinge = nil
+			j.Broken = true
+		}
+	}
 
 	if grab != nil {
 		if grab.constraint != nil && sys != nil {
@@ -342,6 +358,11 @@ func (w *PhysicsWorld) StepSimulation(dt float32) int {
 		}
 
 		C.JPH_PhysicsSystem_Update(w.system, C.float(fixed), 1, w.jobSystem)
+		for _, j := range w.joints {
+			if j != nil && !j.Broken {
+				j.evaluateTensionLocked(fixed)
+			}
+		}
 		w.stepCount++
 		steps++
 	}
@@ -510,7 +531,7 @@ func (w *PhysicsWorld) syncTransformsLocked() {
 	}
 	for _, c := range w.characters {
 		if c.character != nil && c.Owner != nil {
-			c.Owner.Transform.Position = c.getPositionNative()
+			c.Owner.EnsureTransform().SetPosition(c.getPositionNative())
 		}
 	}
 }
@@ -523,12 +544,13 @@ func syncBodyToGameObject(iface *C.JPH_BodyInterface, bodyID uint32, go_ *engine
 	C.JPH_Quat_GetEulerAngles(&rot, &eulerRad)
 
 	const rad2deg = 180.0 / math.Pi
-	go_.Transform.Position = engine.NewVector3(float32(pos.x), float32(pos.y), float32(pos.z))
-	go_.Transform.Rotation = engine.NewVector3(
+	tc := go_.EnsureTransform()
+	tc.SetPosition(engine.NewVector3(float32(pos.x), float32(pos.y), float32(pos.z)))
+	tc.SetRotation(engine.NewVector3(
 		float32(float64(eulerRad.x)*rad2deg),
 		float32(float64(eulerRad.y)*rad2deg),
 		float32(float64(eulerRad.z)*rad2deg),
-	)
+	))
 }
 
 func eulerDegToJoltQuat(deg engine.Vector3) C.JPH_Quat {

@@ -40,13 +40,13 @@ func TestDynamicRigidBodyCollisionSleepAndRenderableSync(t *testing.T) {
 
 	// Static floor box centered at y=-0.5, top surface at y=0
 	floorObj := engine.NewGameObject("floor", "Floor")
-	floorObj.Transform.Position = engine.NewVector3(0, -0.5, 0)
+	floorObj.EnsureTransform().SetPosition(engine.NewVector3(0, -0.5, 0))
 	floorRB := NewRigidBody("floor", world, engine.BodyStatic, BoxShapeDesc(20, 0.5, 20))
 	floorObj.AddComponent(floorRB)
 
 	// Dynamic prop (thrown box) with Renderable + child Renderable to verify hierarchy sync
 	propObj := engine.NewGameObject("prop", "AlarmClock")
-	propObj.Transform.Position = engine.NewVector3(0, 3.0, 0)
+	propObj.EnsureTransform().SetPosition(engine.NewVector3(0, 3.0, 0))
 	propRB := NewRigidBody("prop", world, engine.BodyDynamic, BoxShapeDesc(0.5, 0.5, 0.5))
 	propRB.Restitution = 0.05
 	propRend := engine.NewRenderable("alarm_clock", "default")
@@ -54,7 +54,7 @@ func TestDynamicRigidBodyCollisionSleepAndRenderableSync(t *testing.T) {
 	propObj.AddComponent(propRend)
 
 	childObj := engine.NewGameObject("prop_bell", "Bell")
-	childObj.Transform.Position = engine.NewVector3(0, 0.6, 0)
+	childObj.EnsureTransform().SetPosition(engine.NewVector3(0, 0.6, 0))
 	childObj.AddComponent(engine.NewRenderable("bell", "metal"))
 	propObj.AddChild(childObj)
 
@@ -65,7 +65,7 @@ func TestDynamicRigidBodyCollisionSleepAndRenderableSync(t *testing.T) {
 		world.StepSimulation(DefaultFixedTimestep)
 	}
 
-	pos := propObj.Transform.Position
+	pos := propObj.GetWorldTransform().Position
 	if pos.Y < 0.45 || pos.Y > 0.65 {
 		t.Fatalf("expected prop resting near y=0.5, got y=%f", pos.Y)
 	}
@@ -94,12 +94,12 @@ func TestCCDPreventsTunnelingThroughThinWall(t *testing.T) {
 
 	// Thin 0.2m wall at z = 0
 	wallObj := engine.NewGameObject("wall", "ThinWall")
-	wallObj.Transform.Position = engine.NewVector3(0, 1, 0)
+	wallObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1, 0))
 	wallObj.AddComponent(NewRigidBody("wall", world, engine.BodyStatic, BoxShapeDesc(10, 5, 0.1)))
 
 	// High-velocity projectile with CCD enabled moving at 240 m/s (4m per 1/60s step!)
 	projObj := engine.NewGameObject("proj", "Projectile")
-	projObj.Transform.Position = engine.NewVector3(0, 1, -2.0)
+	projObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -2.0))
 	projRB := NewRigidBody("proj", world, engine.BodyDynamic, SphereShapeDesc(0.2))
 	projRB.UseCCD = true
 	projRB.GravityFactor = 0
@@ -112,7 +112,7 @@ func TestCCDPreventsTunnelingThroughThinWall(t *testing.T) {
 		world.StepSimulation(DefaultFixedTimestep)
 	}
 
-	finalZ := projObj.Transform.Position.Z
+	finalZ := projObj.GetWorldTransform().Position.Z
 	if finalZ > 0.1 {
 		t.Fatalf("CCD projectile tunneled past thin wall at z=0: final z=%f", finalZ)
 	}
@@ -187,7 +187,7 @@ func TestWorldMapStaticCompoundColliderAndCharacterStairsCorners(t *testing.T) {
 
 	// Spawn CharacterController at x=0.5 (across floor seams) and walk East (+X) up the stairs!
 	playerObj := engine.NewGameObject("player", "Player")
-	playerObj.Transform.Position = engine.NewVector3(0.5, floorH+0.02, 0)
+	playerObj.EnsureTransform().SetPosition(engine.NewVector3(0.5, floorH+0.02, 0))
 	ctrl := NewCharacterController(world, DefaultCharacterConfig())
 	playerObj.AddComponent(ctrl)
 
@@ -204,7 +204,7 @@ func TestWorldMapStaticCompoundColliderAndCharacterStairsCorners(t *testing.T) {
 		world.StepSimulation(DefaultFixedTimestep)
 	}
 
-	endPos := playerObj.Transform.Position
+	endPos := playerObj.GetWorldTransform().Position
 	if endPos.X <= 3.0 {
 		t.Fatalf("expected character to advance smoothly across seams/stairs, endX=%f", endPos.X)
 	}
@@ -250,14 +250,14 @@ func TestRaycastMaskAndEntityUserData(t *testing.T) {
 
 	// Static wall at z=8 on LayerNonMoving with user_data=1001
 	wallObj := engine.NewGameObject("wall", "StaticWall")
-	wallObj.Transform.Position = engine.NewVector3(0, 1, 8)
+	wallObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1, 8))
 	wallRB := NewRigidBody("wall", world, engine.BodyStatic, BoxShapeDesc(2, 2, 0.5))
 	wallRB.UserData = 1001
 	wallObj.AddComponent(wallRB)
 
 	// Interactable prop at z=4 on LayerInteractable with user_data=2042
 	propObj := engine.NewGameObject("door_knob", "InteractableProp")
-	propObj.Transform.Position = engine.NewVector3(0, 1, 4)
+	propObj.EnsureTransform().SetPosition(engine.NewVector3(0, 1, 4))
 	propRB := NewRigidBody("door_knob", world, engine.BodyDynamic, BoxShapeDesc(0.5, 0.5, 0.5))
 	propRB.GravityFactor = 0
 	propRB.UserData = 2042

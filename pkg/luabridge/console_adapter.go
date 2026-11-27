@@ -13,12 +13,16 @@ func (c *Console) ExecuteCommand(input string) string {
 	if trimmed == "" {
 		return ""
 	}
+	c.mu.Lock()
 	c.InputBuffer = []rune(trimmed)
+	c.mu.Unlock()
 	return c.SubmitInput()
 }
 
 // GetOutputLines returns a snapshot of console output lines in engine.DebugConsoleLine format.
 func (c *Console) GetOutputLines() []engine.DebugConsoleLine {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	lines := make([]engine.DebugConsoleLine, len(c.Output))
 	for i, l := range c.Output {
 		lines[i] = engine.DebugConsoleLine{
@@ -32,18 +36,24 @@ func (c *Console) GetOutputLines() []engine.DebugConsoleLine {
 
 // ClearOutput clears the stored console output lines.
 func (c *Console) ClearOutput() {
+	c.mu.Lock()
 	c.Output = c.Output[:0]
 	c.ScrollOffset = 0
+	c.mu.Unlock()
 }
 
 // IsConsoleOpen reports whether the console overlay is currently open.
 func (c *Console) IsConsoleOpen() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.IsOpen
 }
 
 // SetConsoleOpen explicitly sets the console overlay visibility.
 func (c *Console) SetConsoleOpen(open bool) {
+	c.mu.Lock()
 	c.IsOpen = open
+	c.mu.Unlock()
 }
 
 // ToggleConsole toggles the console overlay visibility.
@@ -58,6 +68,8 @@ func (c *Console) AppendLog(text string, kind engine.DebugConsoleLineKind) {
 
 // GetHistory returns a copy of the submitted command history.
 func (c *Console) GetHistory() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	out := make([]string, len(c.History))
 	copy(out, c.History)
 	return out

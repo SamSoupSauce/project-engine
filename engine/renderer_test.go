@@ -66,8 +66,9 @@ func TestRendererBuffersAndSorting(t *testing.T) {
 func TestBaseSceneRenderDispatchGatingAndCascade(t *testing.T) {
 	scene := NewBaseScene("RenderGateScene")
 
-	// 1. Spawned object WITH Renderable -> should render
+	// 1. Spawned object WITH Renderable + Transform -> should render
 	hero := NewGameObject("hero", "Hero")
+	hero.AddComponent(NewTransformComponent())
 	heroR := NewRenderable("hero_mesh", "default")
 	heroR.ScriptName = "HeroScript"
 	heroScript := &mockRenderScriptComponent{
@@ -111,6 +112,7 @@ func TestBaseSceneRenderDispatchGatingAndCascade(t *testing.T) {
 
 	// 4. Child cascade & FlagOverrideParent
 	childHidden := NewGameObject("child_hidden", "ChildHidden")
+	childHidden.AddComponent(NewTransformComponent())
 	childHiddenR := NewRenderable("c1", "default")
 	childHiddenScript := &mockRenderScriptComponent{}
 	childHidden.AddComponent(childHiddenR)
@@ -119,6 +121,7 @@ func TestBaseSceneRenderDispatchGatingAndCascade(t *testing.T) {
 	scene.Spawn(childHidden, hero)
 
 	childOverride := NewGameObject("child_override", "ChildOverride")
+	childOverride.AddComponent(NewTransformComponent())
 	childOverrideR := NewRenderable("c2", "default")
 	childOverrideR.Flags = FlagOverrideParent | FlagVisible
 	childOverrideScript := &mockRenderScriptComponent{}
@@ -171,6 +174,7 @@ func TestBaseSceneDraw2DFlushesRendererQuads(t *testing.T) {
 	scene.SetBatcher2D(batcher)
 
 	obj := NewGameObject("hud_custom", "HUDCustom")
+	obj.AddComponent(NewTransformComponent())
 	obj.AddComponent(NewRenderable("quad", "ui"))
 	obj.AddComponent(&mockRenderScriptComponent{
 		onRenderFn: func(_ *GameObject, gfx *Renderer, _ string) {

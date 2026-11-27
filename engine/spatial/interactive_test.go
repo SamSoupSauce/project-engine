@@ -15,7 +15,7 @@ func TestInteractiveComponentHoverHighlightAndRaycastResolve(t *testing.T) {
 
 	scene := engine.NewBaseScene("test")
 	cabinet := engine.NewGameObject("cabinet_01", "Filing Cabinet")
-	cabinet.Transform.Position = engine.NewVector3(0, 1, -4)
+	cabinet.EnsureTransform().SetPosition(engine.NewVector3(0, 1, -4))
 
 	rend := engine.NewRenderable("cabinet_mesh", "steel")
 	cabinet.AddComponent(rend)
@@ -69,7 +69,7 @@ func TestPhysicsGrabCarryAndThrow(t *testing.T) {
 	defer world.Destroy()
 
 	crate := engine.NewGameObject("crate_01", "Wooden Crate")
-	crate.Transform.Position = engine.NewVector3(0, 2, -2)
+	crate.EnsureTransform().SetPosition(engine.NewVector3(0, 2, -2))
 	rb := NewRigidBody("crate_body", world, engine.BodyDynamic, BoxShapeDesc(0.4, 0.4, 0.4))
 	rb.Mass = 2.0
 	crate.AddComponent(rb)

@@ -20,14 +20,27 @@ const (
 	ShapeBox ShapeKind = iota
 	ShapeSphere
 	ShapeCapsule
+	ShapeConvexHull
 )
 
 // ShapeDesc describes collision dimensions for a RigidBody component.
 type ShapeDesc struct {
 	Kind        ShapeKind
-	HalfExtents engine.Vector3 // Used by ShapeBox
-	Radius      float32        // Used by ShapeSphere and ShapeCapsule
-	HalfHeight  float32        // Used by ShapeCapsule (cylinder half-height)
+	HalfExtents engine.Vector3   // Used by ShapeBox (and ConvexHull fallback)
+	Radius      float32          // Used by ShapeSphere and ShapeCapsule
+	HalfHeight  float32          // Used by ShapeCapsule (cylinder half-height)
+	HullPoints  []engine.Vector3 // Used by ShapeConvexHull (extracted from .gltf/.glb meshes)
+}
+
+// ConvexHullShapeDesc creates a convex hull ShapeDesc from local-space vertices.
+func ConvexHullShapeDesc(points []engine.Vector3, fallbackHalfExtents engine.Vector3) ShapeDesc {
+	pts := make([]engine.Vector3, len(points))
+	copy(pts, points)
+	return ShapeDesc{
+		Kind:        ShapeConvexHull,
+		HullPoints:  pts,
+		HalfExtents: fallbackHalfExtents,
+	}
 }
 
 // BoxShapeDesc creates a box ShapeDesc from half-extents.
@@ -90,8 +103,10 @@ func NewRigidBody(id string, world *PhysicsWorld, bodyType engine.PhysicsBodyTyp
 func (rb *RigidBody) Init(owner *engine.GameObject) {
 	rb.Owner = owner
 	if owner != nil {
-		rb.initialPos = owner.Transform.Position
-		rb.initialRot = owner.Transform.Rotation
+		if tc := owner.GetTransformComponent(); tc != nil {
+			rb.initialPos = tc.GetPosition()
+			rb.initialRot = tc.GetRotation()
+		}
 	}
 	if rb.World != nil && rb.BodyID == InvalidBodyID {
 		rb.AttachToWorld(rb.World)
@@ -148,8 +163,10 @@ func (rb *RigidBody) AttachToWorld(world *PhysicsWorld) {
 	pos := rb.initialPos
 	rotDeg := rb.initialRot
 	if rb.Owner != nil {
-		pos = rb.Owner.Transform.Position
-		rotDeg = rb.Owner.Transform.Rotation
+		if tc := rb.Owner.GetTransformComponent(); tc != nil {
+			pos = tc.GetPosition()
+			rotDeg = tc.GetRotation()
+		}
 	}
 
 	jPos := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}
@@ -230,6 +247,22 @@ func (rb *RigidBody) createJoltShape() *C.JPH_Shape {
 			r = 0.25
 		}
 		return (*C.JPH_Shape)(unsafe.Pointer(C.JPH_CapsuleShape_Create(C.float(hh), C.float(r))))
+	case ShapeConvexHull:
+		if len(rb.Shape.HullPoints) >= 4 {
+			pts := make([]C.JPH_Vec3, len(rb.Shape.HullPoints))
+			for i, p := range rb.Shape.HullPoints {
+				pts[i] = C.JPH_Vec3{x: C.float(p.X), y: C.float(p.Y), z: C.float(p.Z)}
+			}
+			settings := C.JPH_ConvexHullShapeSettings_Create(&pts[0], C.uint32_t(len(pts)), C.float(C.JPH_DEFAULT_CONVEX_RADIUS))
+			if settings != nil {
+				hull := C.JPH_ConvexHullShapeSettings_CreateShape(settings)
+				C.JPH_ShapeSettings_Destroy((*C.JPH_ShapeSettings)(unsafe.Pointer(settings)))
+				if hull != nil {
+					return (*C.JPH_Shape)(unsafe.Pointer(hull))
+				}
+			}
+		}
+		fallthrough
 	default:
 		hx, hy, hz := rb.Shape.HalfExtents.X, rb.Shape.HalfExtents.Y, rb.Shape.HalfExtents.Z
 		if hx <= 0 {
@@ -326,7 +359,7 @@ func (rb *RigidBody) GetPosition() engine.Vector3 {
 func (rb *RigidBody) SetPosition(pos engine.Vector3) {
 	rb.initialPos = pos
 	if rb.Owner != nil {
-		rb.Owner.Transform.Position = pos
+		rb.Owner.EnsureTransform().SetPosition(pos)
 	}
 	if rb.World == nil || rb.BodyID == InvalidBodyID {
 		return
@@ -368,7 +401,7 @@ func (rb *RigidBody) GetRotation() engine.Vector3 {
 func (rb *RigidBody) SetRotation(rot engine.Vector3) {
 	rb.initialRot = rot
 	if rb.Owner != nil {
-		rb.Owner.Transform.Rotation = rot
+		rb.Owner.EnsureTransform().SetRotation(rot)
 	}
 	if rb.World == nil || rb.BodyID == InvalidBodyID {
 		return
@@ -561,7 +594,9 @@ func NewCharacterController(world *PhysicsWorld, cfg CharacterConfig) *Character
 func (cc *CharacterController) Init(owner *engine.GameObject) {
 	cc.Owner = owner
 	if owner != nil {
-		cc.initialPos = owner.Transform.Position
+		if tc := owner.GetTransformComponent(); tc != nil {
+			cc.initialPos = tc.GetPosition()
+		}
 	}
 	if cc.World != nil && cc.character == nil {
 		cc.AttachToWorld(cc.World)
@@ -644,7 +679,9 @@ func (cc *CharacterController) AttachToWorld(world *PhysicsWorld) {
 
 	pos := cc.initialPos
 	if cc.Owner != nil {
-		pos = cc.Owner.Transform.Position
+		if tc := cc.Owner.GetTransformComponent(); tc != nil {
+			pos = tc.GetPosition()
+		}
 	}
 	jPos := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}
 	jRot := C.JPH_Quat{x: 0, y: 0, z: 0, w: 1}
@@ -680,7 +717,7 @@ func (cc *CharacterController) Jump(speed float32) {
 func (cc *CharacterController) SetPosition(pos engine.Vector3) {
 	cc.initialPos = pos
 	if cc.Owner != nil {
-		cc.Owner.Transform.Position = pos
+		cc.Owner.EnsureTransform().SetPosition(pos)
 	}
 	if cc.character != nil {
 		jp := C.JPH_RVec3{x: C.float(pos.X), y: C.float(pos.Y), z: C.float(pos.Z)}

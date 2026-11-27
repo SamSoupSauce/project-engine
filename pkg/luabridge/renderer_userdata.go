@@ -303,6 +303,22 @@ func renderableMethods() map[string]lua.LGFunction {
 			})
 			return 0
 		},
+		"ValidateConstraint": func(L *lua.LState) int {
+			r := checkRenderable(L, 1)
+			if err := r.ValidateConstraint(); err != nil {
+				L.Push(lua.LFalse)
+				L.Push(lua.LString(err.Error()))
+				return 2
+			}
+			L.Push(lua.LTrue)
+			L.Push(lua.LNil)
+			return 2
+		},
+		"GetTransform": func(L *lua.LState) int {
+			r := checkRenderable(L, 1)
+			pushTransformComponent(L, r.TransformComponent())
+			return 1
+		},
 	}
 }
 

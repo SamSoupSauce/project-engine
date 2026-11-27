@@ -1,0 +1,46 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "project-engine-gltf"
+  },
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,j8J1vgrXo73NzEw+j8J1PgrXo73NzEw+j8J1PgrXoz3NzEw+j8J1vgrXoz3NzEw+j8J1vgrXo73NzEy+j8J1PgrXo73NzEy+j8J1PgrXoz3NzEy+j8J1vgrXoz3NzEy+RrYTv0a2E79GthM/RrYTP0a2E79GthM/RrYTP0a2Ez9GthM/RrYTv0a2Ez9GthM/RrYTv0a2E79GthO/RrYTP0a2E79GthO/RrYTP0a2Ez9GthO/RrYTv0a2Ez9GthO/AAABAAIAAAACAAMABQAEAAcABQAHAAYABAAAAAMABAADAAcAAQAFAAYAAQAGAAIAAwACAAYAAwAGAAcABAAFAAEABAABAAAA",
+      "byteLength": 264
+    }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 96, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 192, "byteLength": 72 }
+  ],
+  "accessors": [
+    { "bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.24, -0.08, -0.2], "max": [0.24, 0.08, 0.2] },
+    { "bufferView": 1, "byteOffset": 0, "componentType": 5126, "count": 8, "type": "VEC3" },
+    { "bufferView": 2, "byteOffset": 0, "componentType": 5123, "count": 36, "type": "SCALAR" }
+  ],
+  "materials": [
+    {
+      "name": "wood_light",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.48, 0.32, 0.18, 1.0],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.75
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "nightstand_drawer_mesh",
+      "primitives": [
+        { "attributes": { "POSITION": 0, "NORMAL": 1 }, "indices": 2, "material": 0 }
+      ]
+    }
+  ],
+  "nodes": [
+    { "name": "nightstand_drawer", "mesh": 0 },
+    { "name": "handle_socket", "translation": [0.0, 0.0, 0.2] }
+  ],
+  "scenes": [ { "nodes": [0, 1] } ],
+  "scene": 0
+}

@@ -12,7 +12,6 @@ type GameObject struct {
 	ID         string
 	Name       string
 	Active     bool
-	Transform  Transform
 	Parent     *GameObject
 	Children   []*GameObject
 	Components []Component
@@ -22,13 +21,12 @@ type GameObject struct {
 	mu      sync.RWMutex
 }
 
-// NewGameObject initializes an active spatial entity with identity transform.
+// NewGameObject initializes an empty spatial entity with zero default components.
 func NewGameObject(id, name string) *GameObject {
 	return &GameObject{
 		ID:         id,
 		Name:       name,
 		Active:     true,
-		Transform:  NewTransform(),
 		Children:   make([]*GameObject, 0),
 		Components: make([]Component, 0),
 	}
@@ -108,13 +106,58 @@ func (go_ *GameObject) GetComponent(targetType reflect.Type) Component {
 	return nil
 }
 
-// GetWorldTransform evaluates the cascaded world-space transform from root to this entity.
+// RemoveComponent detaches the first component matching targetType and calls Destroy().
+func (go_ *GameObject) RemoveComponent(targetType reflect.Type) bool {
+	if targetType == nil {
+		return false
+	}
+	isIface := targetType.Kind() == reflect.Interface
+	return go_.RemoveComponentWhere(func(c Component) bool {
+		cType := reflect.TypeOf(c)
+		return cType == targetType || (isIface && cType.Implements(targetType))
+	})
+}
+
+// RemoveComponentWhere detaches the first component satisfying match and calls Destroy().
+func (go_ *GameObject) RemoveComponentWhere(match func(Component) bool) bool {
+	if go_ == nil || match == nil {
+		return false
+	}
+	go_.mu.Lock()
+	var removed Component
+	for i, c := range go_.Components {
+		if c == nil {
+			continue
+		}
+		if match(c) {
+			removed = c
+			go_.Components = append(go_.Components[:i], go_.Components[i+1:]...)
+			break
+		}
+	}
+	go_.mu.Unlock()
+
+	if removed != nil {
+		removed.Destroy()
+		return true
+	}
+	return false
+}
+
+// GetWorldTransform evaluates the cascaded world-space transform from attached TransformComponents.
 func (go_ *GameObject) GetWorldTransform() Transform {
+	if go_ == nil {
+		return NewTransform()
+	}
+	local := NewTransform()
+	if tc := go_.GetTransformComponent(); tc != nil {
+		local = tc.Value()
+	}
 	if go_.Parent == nil {
-		return go_.Transform
+		return local
 	}
 	parentWorld := go_.Parent.GetWorldTransform()
-	return CombineTransforms(parentWorld, go_.Transform)
+	return CombineTransforms(parentWorld, local)
 }
 
 // Update propagates delta time across all attached components and active child nodes.

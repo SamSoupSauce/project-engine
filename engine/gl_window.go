@@ -1,41 +1,14 @@
 package engine
 
 import (
-	"fmt"
-	"runtime"
-
-	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
-// GLWindowConfig configures a GLFW + OpenGL 3.3 Core window for hosting scenes
-// and the Dear ImGui debug overlay.
-type GLWindowConfig struct {
-	Width     int
-	Height    int
-	Title     string
-	Visible   bool
-	Resizable bool
-	VSync     bool
-	ClearRGB  [4]float32
-}
-
-// DefaultGLWindowConfig returns standard OpenGL 3.3 Core window defaults.
-func DefaultGLWindowConfig() GLWindowConfig {
-	return GLWindowConfig{
-		Width:     1280,
-		Height:    720,
-		Title:     "Project Engine - OpenGL 3 Runtime",
-		Visible:   true,
-		Resizable: true,
-		VSync:     true,
-		ClearRGB:  [4]float32{0.04, 0.055, 0.086, 1.0},
-	}
-}
-
-// GLApp hosts a GLFW window, OpenGL 3.3 Core context, active Scene, 2D orthographic batcher, and ImGuiOverlay.
+// GLApp hosts a GLContext component, OpenGL 3.3 Core window, active Scene,
+// 2D orthographic batcher, and ImGuiOverlay.
 type GLApp struct {
 	Config    GLWindowConfig
+	Context   *GLContext
 	Window    *glfw.Window
 	Batcher2D *OrthoBatcher2D
 	Overlay   *ImGuiOverlay
@@ -47,64 +20,36 @@ func NewGLApp(cfg GLWindowConfig, scene Scene, overlay *ImGuiOverlay) *GLApp {
 	if overlay == nil {
 		overlay = NewImGuiOverlay()
 	}
+	ctx := NewGLContext(cfg)
 	return &GLApp{
 		Config:    cfg,
+		Context:   ctx,
 		Batcher2D: NewOrthoBatcher2D(DefaultBatcher2DCapacity),
 		Overlay:   overlay,
 		Scene:     scene,
 	}
 }
 
-// InitWindow initializes GLFW, creates an OpenGL 3.3 Core context, initializes GL
-// bindings, and attaches the ImGuiOverlay. Call Close() when done.
+// InitWindow initializes GLFW via GLContext, creates an OpenGL 3.3 Core context,
+// initializes GL bindings, Batcher2D, and attaches the ImGuiOverlay. Call Close() when done.
 func (a *GLApp) InitWindow() error {
-	runtime.LockOSThread()
-
-	if err := glfw.Init(); err != nil {
-		return fmt.Errorf("engine: glfw.Init failed: %w", err)
-	}
-
-	glfw.WindowHint(glfw.ContextVersionMajor, 3)
-	glfw.WindowHint(glfw.ContextVersionMinor, 3)
-	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	if a.Config.Visible {
-		glfw.WindowHint(glfw.Visible, glfw.True)
+	if a.Context == nil {
+		a.Context = NewGLContext(a.Config)
 	} else {
-		glfw.WindowHint(glfw.Visible, glfw.False)
-	}
-	if a.Config.Resizable {
-		glfw.WindowHint(glfw.Resizable, glfw.True)
-	} else {
-		glfw.WindowHint(glfw.Resizable, glfw.False)
+		a.Context.Config = a.Config
 	}
 
-	w, err := glfw.CreateWindow(a.Config.Width, a.Config.Height, a.Config.Title, nil, nil)
-	if err != nil {
-		glfw.Terminate()
-		return fmt.Errorf("engine: glfw.CreateWindow failed: %w", err)
+	if err := a.Context.Open(); err != nil {
+		return err
 	}
-	a.Window = w
-	w.MakeContextCurrent()
-
-	if a.Config.VSync {
-		glfw.SwapInterval(1)
-	} else {
-		glfw.SwapInterval(0)
-	}
+	a.Window = a.Context.Window
 
 	if a.Overlay != nil {
-		if err := a.Overlay.Init(w); err != nil {
-			w.Destroy()
-			glfw.Terminate()
+		if err := a.Overlay.Init(a.Window); err != nil {
+			a.Context.Close()
 			a.Window = nil
 			return err
 		}
-	} else if err := gl.Init(); err != nil {
-		w.Destroy()
-		glfw.Terminate()
-		a.Window = nil
-		return fmt.Errorf("engine: gl.Init failed: %w", err)
 	}
 
 	if a.Batcher2D != nil {
@@ -112,16 +57,11 @@ func (a *GLApp) InitWindow() error {
 			if a.Overlay != nil {
 				a.Overlay.Shutdown()
 			}
-			w.Destroy()
-			glfw.Terminate()
+			a.Context.Close()
 			a.Window = nil
 			return err
 		}
 	}
-
-	w.SetFramebufferSizeCallback(func(_ *glfw.Window, width, height int) {
-		gl.Viewport(0, 0, int32(width), int32(height))
-	})
 
 	return nil
 }
@@ -136,15 +76,12 @@ type SceneMetadata interface {
 // StepFrame executes update, 3D scene pass, 2D orthographic HUD pass, ImGui overlay pass,
 // buffer swap, and event polling.
 func (a *GLApp) StepFrame(dt float32) {
-	if a.Window == nil {
+	if a.Context == nil || a.Context.Window == nil {
 		return
 	}
 
-	fbW, fbH := a.Window.GetFramebufferSize()
-	gl.Viewport(0, 0, int32(fbW), int32(fbH))
-	gl.Enable(gl.DEPTH_TEST)
-	gl.ClearColor(a.Config.ClearRGB[0], a.Config.ClearRGB[1], a.Config.ClearRGB[2], a.Config.ClearRGB[3])
-	gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+	a.Context.BeginFrame()
+	a.Context.Update(dt)
 
 	if a.Scene != nil {
 		a.Scene.Update(dt)
@@ -155,10 +92,9 @@ func (a *GLApp) StepFrame(dt float32) {
 	// Orthographic 2D pass: runs after the 3D scene pass and before the debug ImGui pass.
 	if a.Batcher2D != nil && a.Scene != nil {
 		if sc, ok := a.Scene.(SceneController); ok {
-			winW, winH := a.Window.GetSize()
-			cmds := Extract2DFromHierarchy(sc.GetRoot(), float32(winW), float32(winH))
+			cmds := Extract2DFromHierarchy(sc.GetRoot(), float32(a.Context.Width), float32(a.Context.Height))
 			if len(cmds) > 0 {
-				a.Batcher2D.Begin(winW, winH)
+				a.Batcher2D.Begin(a.Context.Width, a.Context.Height)
 				a.Batcher2D.DrawCommands(cmds)
 				a.Batcher2D.End()
 			}
@@ -170,13 +106,13 @@ func (a *GLApp) StepFrame(dt float32) {
 			a.Overlay.SceneName = sc.GetName()
 			a.Overlay.ObjectCount = sc.ObjectCount()
 		}
+		a.Overlay.MetricsFPS = a.Context.FPS
 		a.Overlay.NewFrame()
 		a.Overlay.DrawDebugWindows()
 		a.Overlay.Render()
 	}
 
-	a.Window.SwapBuffers()
-	glfw.PollEvents()
+	a.Context.EndFrame()
 }
 
 // Run opens the GLFW window and drives the main loop until the window closes.
@@ -191,17 +127,14 @@ func (a *GLApp) Run() error {
 		defer a.Scene.Unload()
 	}
 
-	lastTime := glfw.GetTime()
-	for !a.Window.ShouldClose() {
-		now := glfw.GetTime()
-		dt := float32(now - lastTime)
-		lastTime = now
+	for !a.Context.ShouldClose() {
+		dt := a.Context.StepDelta()
 		a.StepFrame(dt)
 	}
 	return nil
 }
 
-// Close shuts down the 2D batcher, ImGui overlay, destroys the GLFW window, and terminates GLFW.
+// Close shuts down the 2D batcher, ImGui overlay, and GLContext.
 func (a *GLApp) Close() {
 	if a.Batcher2D != nil {
 		a.Batcher2D.Destroy()
@@ -209,9 +142,8 @@ func (a *GLApp) Close() {
 	if a.Overlay != nil {
 		a.Overlay.Shutdown()
 	}
-	if a.Window != nil {
-		a.Window.Destroy()
-		a.Window = nil
+	if a.Context != nil {
+		a.Context.Close()
 	}
-	glfw.Terminate()
+	a.Window = nil
 }

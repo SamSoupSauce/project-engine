@@ -1,0 +1,46 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "project-engine-gltf"
+  },
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,Ctcjvq5H4b2PwvU9CtcjPq5H4b2PwvU9CtcjPq5H4T2PwvU9Ctcjvq5H4T2PwvU9Ctcjvq5H4b2PwvW9CtcjPq5H4b2PwvW9CtcjPq5H4T2PwvW9Ctcjvq5H4T2PwvW9RrYTv0a2E79GthM/RrYTP0a2E79GthM/RrYTP0a2Ez9GthM/RrYTv0a2Ez9GthM/RrYTv0a2E79GthO/RrYTP0a2E79GthO/RrYTP0a2Ez9GthO/RrYTv0a2Ez9GthO/AAABAAIAAAACAAMABQAEAAcABQAHAAYABAAAAAMABAADAAcAAQAFAAYAAQAGAAIAAwACAAYAAwAGAAcABAAFAAEABAABAAAA",
+      "byteLength": 264
+    }
+  ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 96, "byteLength": 96 },
+    { "buffer": 0, "byteOffset": 192, "byteLength": 72 }
+  ],
+  "accessors": [
+    { "bufferView": 0, "byteOffset": 0, "componentType": 5126, "count": 8, "type": "VEC3", "min": [-0.16, -0.11, -0.12], "max": [0.16, 0.11, 0.12] },
+    { "bufferView": 1, "byteOffset": 0, "componentType": 5126, "count": 8, "type": "VEC3" },
+    { "bufferView": 2, "byteOffset": 0, "componentType": 5123, "count": 36, "type": "SCALAR" }
+  ],
+  "materials": [
+    {
+      "name": "metal_hollow",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.82, 0.84, 0.88, 1.0],
+        "metallicFactor": 0.9,
+        "roughnessFactor": 0.2
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "kitchen_toaster_mesh",
+      "primitives": [
+        { "attributes": { "POSITION": 0, "NORMAL": 1 }, "indices": 2, "material": 0 }
+      ]
+    }
+  ],
+  "nodes": [
+    { "name": "kitchen_toaster", "mesh": 0 },
+    { "name": "grip_socket", "translation": [0.0, 0.11, 0.0] }
+  ],
+  "scenes": [ { "nodes": [0, 1] } ],
+  "scene": 0
+}
