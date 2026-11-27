@@ -23,8 +23,10 @@ local function run_frames(count)
 	end
 end
 
--- Run warm-up frames to trigger trace compilation
-run_frames(2000)
+-- Run warm-up frames across multiple invocations so root and side-exit traces finish compiling.
+for _ = 1, 20 do
+	run_frames(200)
+end
 
 collectgarbage("collect")
 collectgarbage("collect")
