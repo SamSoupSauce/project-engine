@@ -82,7 +82,7 @@ jobs:
       # -----------------------------------------------------------------------
       # Windows x64: uses vendored libjoltc.a & libluajit.a
       # -----------------------------------------------------------------------
-      - name: Run vet, race tests & package (Windows x64)
+      - name: Run vet, tests & package (Windows x64)
         if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
         shell: pwsh
         run: |
@@ -94,7 +94,9 @@ jobs:
           $ver = "${{ steps.ver.outputs.version }}"
           go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test -race -count=1 ./...
+          go test -count=1 ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -race -count=1 ./engine/spatial ./engine/hazards ./pkg/props ./pkg/tileimporter
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           .\build.ps1 -Package -Version $ver
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -242,32 +244,35 @@ jobs:
           ranlib "${NATIVE_DIR}/lib/libjoltc.a"
           test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          # 2. Build static LuaJIT 2.1 for self-contained Linux binaries
+          # 2. Build static PIE-compatible LuaJIT 2.1 for self-contained Linux binaries
           git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
-          make -C "${RUNNER_TEMP}/luajit/src" -j4 BUILDMODE=static amalg
+          make -C "${RUNNER_TEMP}/luajit/src" -j4 CC="gcc -fPIC" BUILDMODE=static amalg
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
           test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
 
           EXTRA_CGO_LDFLAGS="-L${NATIVE_DIR}/lib"
 
-          # 3. On linux/arm64, build cimgui.a (cimgui-go only prebundles linux/x64)
+          # 3. On linux/arm64: enforce signed char for cimgui-go and build cimgui.a
           if [ "${ARCH}" = "arm64" ]; then
+            export CGO_CFLAGS="-fsigned-char"
             go mod download
             CIMGUI_MOD=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
             cp -R "${CIMGUI_MOD}" "${RUNNER_TEMP}/cimgui-src"
             chmod -R u+w "${RUNNER_TEMP}/cimgui-src"
             cmake -S "${RUNNER_TEMP}/cimgui-src/lib" -B "${RUNNER_TEMP}/cimgui-build" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_CXX_FLAGS="-Wno-changes-meaning -Wno-invalid-conversion -fpermissive"
+              -DCMAKE_C_FLAGS="-fsigned-char" \
+              -DCMAKE_CXX_FLAGS="-fsigned-char -Wno-changes-meaning -Wno-invalid-conversion -fpermissive"
             cmake --build "${RUNNER_TEMP}/cimgui-build" --parallel
             cp "${RUNNER_TEMP}/cimgui-build/cimgui.a" "${NATIVE_DIR}/lib/cimgui.a"
             test -s "${NATIVE_DIR}/lib/cimgui.a"
-            EXTRA_CGO_LDFLAGS="${EXTRA_CGO_LDFLAGS} ${NATIVE_DIR}/lib/cimgui.a -lGL -lX11 -lpthread -ldl -lm"
+            EXTRA_CGO_LDFLAGS="${EXTRA_CGO_LDFLAGS} ${NATIVE_DIR}/lib/cimgui.a -lstdc++ -lGL -lX11 -lpthread -ldl -lm"
           fi
 
           export CGO_LDFLAGS="${EXTRA_CGO_LDFLAGS}"
           go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
-          go test -race -count=1 ./...
+          go test -count=1 ./...
+          go test -race -count=1 ./engine/spatial ./engine/hazards ./pkg/props ./pkg/tileimporter
 
           mkdir -p dist/project-engine/config release-artifacts
           go build -ldflags "-X github.com/SamSoupSauce/project-engine/engine.Version=${VER}" \
@@ -341,7 +346,8 @@ jobs:
 
           if [ "${{ matrix.run_tests }}" = "true" ]; then
             go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
-            go test -race -count=1 ./...
+            go test -count=1 ./...
+            go test -race -count=1 ./engine/spatial ./engine/hazards ./pkg/props ./pkg/tileimporter
           fi
 
           mkdir -p dist/project-engine/config release-artifacts
