@@ -177,6 +177,7 @@ func (s *RainbowCubeDemoScene) updateCameraPosition() {
 
 type demoServerOptions struct {
 	Serve   bool
+	Tunnel  bool
 	Address string
 	Token   string
 }
@@ -185,10 +186,14 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	var opts demoServerOptions
 	fs.BoolVar(&opts.Serve, "serve", false, "Start dual-transport HTTP JSON-RPC + WebSocket agent bridge server")
+	fs.BoolVar(&opts.Tunnel, "tunnel", false, "Auto-locate/download cloudflared and open a quick tunnel to --address (implies --serve)")
 	fs.StringVar(&opts.Address, "address", luabridge.DefaultAgentServerAddress, "Bind address for agent bridge server")
-	fs.StringVar(&opts.Token, "token", "", "Required authentication token when --serve is enabled (may be empty)")
+	fs.StringVar(&opts.Token, "token", "", "Required authentication token when --serve or --tunnel is enabled (may be empty)")
 	if err := fs.Parse(args); err != nil {
 		return opts, err
+	}
+	if opts.Tunnel {
+		opts.Serve = true
 	}
 	tokenProvided := false
 	fs.Visit(func(f *flag.Flag) {
@@ -197,7 +202,7 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 		}
 	})
 	if opts.Serve && !tokenProvided {
-		return opts, fmt.Errorf("--serve requires --token to be explicitly provided (e.g. --token=\"\" or --token=secret)")
+		return opts, fmt.Errorf("--serve / --tunnel requires --token to be explicitly provided (e.g. --token=\"\" or --token=secret)")
 	}
 	return opts, nil
 }
@@ -292,6 +297,9 @@ func main() {
 		}
 		imgui.TextUnformatted(fmt.Sprintf("Framebuffer: %dx%d | FPS: %.1f", glCtx.FramebufferW, glCtx.FramebufferH, glCtx.FPS))
 		imgui.TextUnformatted(fmt.Sprintf("Fullscreen: %v | Cursor Locked: %v", glCtx.IsFullscreen, glCtx.CursorLocked))
+		if tURL := overlay.GetTunnelURL(); tURL != "" {
+			imgui.TextColored(imgui.NewVec4(0.55, 0.95, 0.65, 1.0), fmt.Sprintf("Tunnel URL: %s", tURL))
+		}
 		imgui.TextUnformatted("Shortcuts: [F] Fullscreen  [L] Cursor Lock  [~] Lua Console  [Esc] Unlock/Quit")
 
 		imgui.Checkbox("Auto Rotate", &scene.autoRotate)
@@ -345,6 +353,23 @@ func main() {
 			agentServer.FlushFrameCaptures(glCtx.FramebufferW, glCtx.FramebufferH)
 		}
 		console.Print(fmt.Sprintf("[AgentServer] Listening on %s (/rpc, /ws)", agentServer.BoundAddress()), luabridge.LineSystem)
+
+		if serverOpts.Tunnel {
+			tunnelCtx, tunnelCancel := context.WithCancel(context.Background())
+			defer tunnelCancel()
+			tm := luabridge.NewTunnelManager(console, luabridge.TunnelConfig{
+				TargetAddress: agentServer.BoundAddress(),
+				OnURL: func(url string) {
+					overlay.SetTunnelURL(url)
+				},
+			})
+			go func() {
+				if err := tm.Start(tunnelCtx); err != nil {
+					console.Print(fmt.Sprintf("[Tunnel] Error: %v", err), luabridge.LineError)
+				}
+			}()
+			defer tm.Stop()
+		}
 	}
 
 	if err := app.Run(); err != nil {

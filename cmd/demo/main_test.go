@@ -34,4 +34,16 @@ func TestParseDemoServerFlags(t *testing.T) {
 	if !opts.Serve || opts.Address != "0.0.0.0:9000" || opts.Token != "abc123" {
 		t.Fatalf("unexpected opts: %+v", opts)
 	}
+
+	// --tunnel implies --serve and requires --token.
+	if _, err := parseDemoServerFlags([]string{"--tunnel"}); err == nil {
+		t.Fatalf("expected error when --tunnel is set without --token")
+	}
+	opts, err = parseDemoServerFlags([]string{"--tunnel", "--token="})
+	if err != nil {
+		t.Fatalf("unexpected error with --tunnel --token=: %v", err)
+	}
+	if !opts.Serve || !opts.Tunnel {
+		t.Fatalf("expected --tunnel to enable Serve and Tunnel, got %+v", opts)
+	}
 }

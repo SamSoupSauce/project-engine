@@ -63,6 +63,22 @@ go test -v ./...
 
 ---
 
+## Agent Bridge Server & Cloudflare Quick Tunnel
+
+External AI agents and tools can inspect and control a running `cmd/demo` instance over HTTP JSON-RPC (`POST /rpc`) and WebSocket (`GET /ws`) with guaranteed main-thread tick execution:
+
+```bash
+# Local listener on 127.0.0.1:4242 (--token is required, even if empty "")
+go run ./cmd/demo --serve --address=127.0.0.1:4242 --token=""
+
+# Automated Cloudflare Quick Tunnel (downloads cloudflared if missing and prints URL in Console & ImGui overlay)
+go run ./cmd/demo --serve --tunnel --address=127.0.0.1:4242 --token=""
+```
+
+See [skills/use-project-engine/SKILL.md](skills/use-project-engine/SKILL.md) for the agent discovery protocol, token headers/query parameters, and JSON-RPC / WebSocket examples.
+
+---
+
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
