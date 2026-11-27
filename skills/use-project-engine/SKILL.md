@@ -1,11 +1,11 @@
 ---
 name: use-project-engine
-description: Connect to, inspect, and control a running Project Engine instance over HTTP JSON-RPC (/rpc) and WebSocket (/ws), locally or via Cloudflare Tunnel.
+description: Connect to, dynamically introspect, and control a running Project Engine instance over HTTP JSON-RPC (/rpc) and WebSocket (/ws), locally or via Cloudflare Tunnel.
 ---
 
 # `use-project-engine` Skill
 
-Use this skill when connecting an external AI agent (Antigravity CLI, Claude Code, Codex/GPT CLI, or local LLMs) to a running **Project Engine** instance to inspect scenes, query prefabs/components, spawn entities, execute Lua console commands, stream logs, or capture rendered frames.
+Use this skill when connecting an external AI agent (Antigravity CLI, Claude Code, Codex/GPT CLI, or local LLMs) to a running **Project Engine** instance to audit runtime documentation/schemas, inspect scenes, query prefabs/components, load/reload scripts, spawn entities, execute shell/Lua commands, stream logs, or capture rendered frames.
 
 ---
 
@@ -37,27 +37,49 @@ Whenever this skill is activated or the user issues a Project Engine task, you *
    - Launches an ad-hoc Cloudflare quick tunnel forwarding to `--address` (default `127.0.0.1:4242`).
    - Prints the assigned `https://<id>.trycloudflare.com` URL directly in the in-engine Developer Console and Dear ImGui debug overlay.
 
-3. **Authentication Token Enforcement:**
-   - Check `$PE_SERVER_TOKEN` in your client environment if set, or ask/accept an explicit token value.
-   - If unset, default to the empty string `""`.
-   - **CRITICAL:** The engine server rejects requests with `401 Unauthorized` if the token field is omitted — even when the server was launched with `--token=""`.
-   - Always send one of:
-     - HTTP header: `Authorization: Bearer <token>` (e.g. `Authorization: Bearer ` when empty) or `X-Engine-Token: <token>`
-     - WebSocket query param: `?token=<token>` (e.g. `wss://<endpoint>/ws?token=` when empty) or handshake header `Authorization: Bearer <token>` / `X-Engine-Token: <token>`.
+3. **Authentication Token & Sender Attribution:**
+   - Check `$PE_SERVER_TOKEN` in your client environment if set, or ask/accept an explicit token value. If unset, default to `""`.
+   - **CRITICAL:** The engine rejects requests with `401 Unauthorized` if the token field is omitted — even when launched with `--token=""`.
+   - Always pass:
+     - HTTP headers: `X-Engine-Token: <token>` (or `Authorization: Bearer <token>`) and optional `X-Client-ID: <agent_name>` (e.g., `agy`, `claude`, `gemini`) so commands mirror in-game as `[agent:<id>] <cmd>`.
+     - WebSocket query params: `?token=<token>&client_id=<agent_name>`.
 
 ---
 
-## 2. Transport Selection & Wire Contracts
+## 2. Mandatory Bootstrap Discovery Sequence (Zero Hallucinations)
 
-### A. HTTP JSON-RPC (`POST /rpc`) — Discrete / Rich Queries
-Use `POST /rpc` via `curl` or an HTTP client for introspection, prefab queries, spawning entities, one-off Lua execution, and frame captures.
+**CRITICAL:** Before executing any scene mutation, spawning prefabs, attaching components, or injecting Lua scripts, you **MUST** perform a live capability audit:
 
-**Request Template:**
+1. **Capability Audit (`engine.ping` + `engine.query_docs`):**
+   - Immediately upon connecting, call `engine.ping` and then **`engine.query_docs`** (`params: {}` or `docs` in shell) to retrieve the live index of:
+     - Engine subsystems (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `prefabs`, `scripts`, `console`)
+     - Native Go shell commands (`help`, `docs`, `scripts.list`, `scripts.run`, `scripts.reload`, `scripts.unload`, `comp`, `prefabs`, `edit`, etc.)
+     - Dynamically registered Lua shell commands (`shell.register(...)`)
+     - Registered ECS component schemas (built-in and custom Lua `Component(...)` types)
+     - Engine lifecycle hooks (`load`, `unload`, `tick`, `event`, `spawn`, `despawn`)
+   - Cache the returned capabilities in your working context.
+
+2. **Dynamic Tool State Maintenance:**
+   - Whenever you load or reload a Lua script (`scripts.run` or `scripts.reload`), you **MUST** re-query `engine.query_docs` (or `docs` / `help`) to discover newly registered or updated shell commands.
+   - If any command fails due to missing arguments, invalid syntax, or type mismatch, immediately query `engine.query_docs` (`{ "topic": "<cmd>" }`) or run `docs <cmd>` to inspect its live `usage` and `description` rather than guessing parameters.
+
+3. **Prohibition of Hallucinated APIs:**
+   - You are **strictly prohibited** from guessing engine method names, Jolt physics bindings, shell flags, or ECS component keys.
+   - Whenever you need to manipulate an entity or physics/rendering component and do not know its exact layout, first inspect `engine.query_components`, `docs components`, or `docs jolt`.
+
+---
+
+## 3. Transport Selection & Wire Contracts
+
+### A. HTTP JSON-RPC (`POST /rpc`) — Discrete & Introspection Queries
+Use `POST /rpc` via `curl` for capability audits (`engine.query_docs`), prefab/component queries, spawning entities, shell/console commands, and frame captures.
+
 ```bash
 TOKEN="${PE_SERVER_TOKEN:-}"
 curl -sS -X POST "${ENGINE_URL:-http://127.0.0.1:4242}/rpc" \
   -H "Content-Type: application/json" \
   -H "X-Engine-Token: ${TOKEN}" \
+  -H "X-Client-ID: agy" \
   -d '{
     "jsonrpc": "2.0",
     "id": "agent-req-1",
@@ -65,79 +87,62 @@ curl -sS -X POST "${ENGINE_URL:-http://127.0.0.1:4242}/rpc" \
     "params": {}
   }'
 ```
-*(You may also pass `-H "Authorization: Bearer ${TOKEN}"`.)*
-
-**Success Envelope:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "agent-req-1",
-  "result": {
-    "status": "success",
-    "data": { ... },
-    "logs": ["console output line 1"],
-    "tick": 45892,
-    "timing_ms": 1.42
-  }
-}
-```
-
-**Error Envelope:**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "agent-req-1",
-  "error": {
-    "code": -32000,
-    "message": "error message",
-    "data": { "traceback": "..." }
-  }
-}
-```
 
 ### B. WebSocket (`GET /ws`) — High-Frequency Duplex & Live Logs
-Use `GET /ws` with `websocat` or `wscat` for continuous entity control, rapid loops, and real-time console log tailing.
+Use `GET /ws` with `websocat` or `wscat` for continuous entity control, shell verbs (`op: "shell"` or `op: "exec"`), and real-time console log tailing.
 
 ```bash
 TOKEN="${PE_SERVER_TOKEN:-}"
-websocat "${WS_URL:-ws://127.0.0.1:4242}/ws?token=${TOKEN}"
+websocat "${WS_URL:-ws://127.0.0.1:4242}/ws?token=${TOKEN}&client_id=agy"
 ```
 
 **Inbound Command Frames:**
 ```json
-{ "id": 1, "op": "exec", "cmd": "print('hello'); return selected" }
+{ "id": 1, "op": "shell", "cmd": "docs" }
+{ "id": 2, "op": "exec", "cmd": "print('hello'); return list_objects()" }
+{ "id": 3, "op": "query_docs", "params": { "topic": "jolt" } }
 ```
-Also supports `op`: `"ping"`, `"query_prefabs"`, `"query_components"`, `"spawn_prefab"`, `"capture_frame"`, `"console_exec"`, or `"rpc"` (`{ "id": 2, "op": "rpc", "method": "engine.ping", "params": {} }`).
+Also supports `op`: `"ping"`, `"query_prefabs"`, `"query_components"`, `"query_docs"`, `"spawn_prefab"`, `"capture_frame"`, `"console_exec"`, or `"rpc"`.
 
 **Outbound Reply & Streamed Log Frames:**
 ```json
-{ "id": 1, "ok": true, "res": null }
-{ "event": "log", "msg": "hello" }
+{ "id": 1, "ok": true, "res": "..." }
+{ "event": "log", "msg": "[agent:agy] docs" }
 ```
 
 ---
 
-## 3. Core Action Playbooks
+## 4. Core Action Playbooks
 
-### 1. Introspection (`engine.ping`, `engine.query_prefabs`, `engine.query_components`)
-Always inspect engine health, available prefabs, and component schemas before mutating a scene.
+### 1. Dynamic Documentation & Capability Audit (`engine.query_docs`)
+Query the full runtime index or a specific topic (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, or any command name):
+```json
+{ "jsonrpc": "2.0", "id": "docs-idx", "method": "engine.query_docs", "params": { "topic": "" } }
+```
+```json
+{ "jsonrpc": "2.0", "id": "docs-topic", "method": "engine.query_docs", "params": { "topic": "spawn_box" } }
+```
 
+### 2. Introspection (`engine.ping`, `engine.query_prefabs`, `engine.query_components`)
 ```json
 { "jsonrpc": "2.0", "id": "1", "method": "engine.ping", "params": {} }
-```
-```json
 { "jsonrpc": "2.0", "id": "2", "method": "engine.query_prefabs", "params": { "query": "" } }
-```
-```json
 { "jsonrpc": "2.0", "id": "3", "method": "engine.query_components", "params": { "query": "" } }
 ```
 
-### 2. Scene Synthesis (`engine.spawn_prefab`)
-Instantiate a stored prefab from `prefabs/` at world coordinates `(x, y, z)`:
+### 3. Unified Shell & Script Lifecycle (`engine.console_exec`)
+Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs through the unified `ExecuteWithContext` funnel (zero backdoors) and mirrors `[agent:<id>] <cmd>` to the in-game console:
+```json
+{ "jsonrpc": "2.0", "id": "4", "method": "engine.console_exec", "params": { "cmd": "scripts.list" } }
+{ "jsonrpc": "2.0", "id": "5", "method": "engine.console_exec", "params": { "cmd": "scripts.run scripts/test_tools.lua" } }
+{ "jsonrpc": "2.0", "id": "6", "method": "engine.console_exec", "params": { "cmd": "scripts.reload test_tools" } }
+```
+
+### 4. Scene Synthesis (`engine.spawn_prefab`)
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "4",
+  "id": "7",
   "method": "engine.spawn_prefab",
   "params": {
     "name": "rainbow_cube",
@@ -148,32 +153,17 @@ Instantiate a stored prefab from `prefabs/` at world coordinates `(x, y, z)`:
 }
 ```
 
-### 3. Runtime Script & Console Execution (`engine.console_exec`)
-Execute arbitrary Lua or console commands (`help`, `pick`, `comp`, `prefabs`, `scripts`, `edit`) synchronously on the engine tick loop:
+### 5. Vision Feedback (`engine.capture_frame`)
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "5",
-  "method": "engine.console_exec",
-  "params": {
-    "cmd": "pick('cube'):GetComponent(Transform):SetPosition(0, 2, 0); return list_objects()"
-  }
-}
-```
-
-### 4. Vision Feedback (`engine.capture_frame`)
-Capture the rendered OpenGL backbuffer as base64-encoded PNG (default) or JPEG (`"format": "jpeg"`):
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "6",
+  "id": "8",
   "method": "engine.capture_frame",
   "params": { "format": "png" }
 }
 ```
-Response `result.data` returns `{ "format": "png", "width": 1280, "height": 720, "data": "<base64>" }`.
 
 ---
 
-## 4. Reference Examples
-See [examples/](examples/) for ready-to-run shell scripts (`ping.sh`, `query_prefabs_and_components.sh`, `spawn_prefab.sh`, `console_exec.sh`, `capture_frame.sh`, `ws_stream.sh`).
+## 5. Reference Examples
+See [examples/](examples/) for ready-to-run shell scripts (`ping.sh`, `query_docs.sh`, `query_prefabs_and_components.sh`, `spawn_prefab.sh`, `console_exec.sh`, `capture_frame.sh`, `ws_stream.sh`).

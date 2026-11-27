@@ -575,6 +575,33 @@ func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessa
 			"count":      len(list),
 		}, nil
 
+	case "engine.query_docs":
+		if s.Bridge == nil {
+			return nil, &rpcError{Code: -32000, Message: "LuaBridge not initialized"}
+		}
+		var topic string
+		trimmedParams := strings.TrimSpace(string(params))
+		if trimmedParams != "" && trimmedParams != "null" {
+			if strings.HasPrefix(trimmedParams, "\"") {
+				if err := json.Unmarshal(params, &topic); err != nil {
+					return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+				}
+			} else {
+				var p struct {
+					Topic string `json:"topic"`
+				}
+				if err := json.Unmarshal(params, &p); err != nil {
+					return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+				}
+				topic = p.Topic
+			}
+		}
+		res, err := s.Bridge.QueryDocs(topic)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return res, nil
+
 	case "engine.spawn_prefab":
 		if s.Bridge == nil || s.Bridge.PrefabEditor() == nil {
 			return nil, &rpcError{Code: -32000, Message: "PrefabService not initialized"}
@@ -955,7 +982,7 @@ func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 			return "", nil, fmt.Errorf("op 'rpc' requires method")
 		}
 		return frame.Method, frame.Params, nil
-	case "ping", "query_prefabs", "query_components", "spawn_prefab", "capture_frame":
+	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame":
 		return "engine." + op, frame.Params, nil
 	default:
 		if strings.HasPrefix(op, "engine.") {
