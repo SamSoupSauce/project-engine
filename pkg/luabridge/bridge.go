@@ -66,6 +66,7 @@ func NewLuaBridge() *LuaBridge {
 	bridge.registerPrefabAPIs()
 	bridge.registerSearchAndComponentCommands()
 	bridge.registerShellAPIs()
+	bridge.registerDocsAPIs()
 	return bridge
 }
 
