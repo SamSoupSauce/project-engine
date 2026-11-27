@@ -209,3 +209,44 @@ func TestContiguousStitchingAndMultiLayer(t *testing.T) {
 		t.Errorf("expected ExportStaticColliderBounds to emit at least one bound per tile (%d), got %d", len(worldMap.Tiles), len(bounds))
 	}
 }
+
+func TestStairsAndPillarTileProperties(t *testing.T) {
+	tmx := `<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" orientation="orthogonal" width="3" height="1" tilewidth="32" tileheight="32">
+ <tileset firstgid="1" name="demo" tilewidth="32" tilecount="4">
+  <tile id="0">
+   <properties>
+    <property name="name" value="Pillar"/>
+    <property name="type" value="pillar"/>
+    <property name="solid" type="bool" value="true"/>
+   </properties>
+  </tile>
+  <tile id="1">
+   <properties>
+    <property name="name" value="Stairs"/>
+    <property name="type" value="stairs"/>
+    <property name="stair_dir" value="north"/>
+    <property name="step_count" type="int" value="4"/>
+    <property name="stair_height" type="float" value="1.2"/>
+   </properties>
+  </tile>
+ </tileset>
+ <layer id="1" name="Ground" width="3" height="1">
+  <data encoding="csv">1,2,0</data>
+ </layer>
+</map>`
+	m, err := ParseTMX([]byte(tmx))
+	if err != nil {
+		t.Fatalf("ParseTMX failed: %v", err)
+	}
+	w := NewWorldMap3D(m, 1.0, 0.0)
+	if len(w.Tiles) != 2 {
+		t.Fatalf("expected 2 tiles, got %d", len(w.Tiles))
+	}
+	if w.Tiles[0].Type != TilePillar || !w.Tiles[0].IsSolid {
+		t.Fatalf("expected tile 0 to be solid pillar, got %+v", w.Tiles[0])
+	}
+	if w.Tiles[1].Type != TileStairs || !w.Tiles[1].IsStairs || len(w.Tiles[1].Steps) != 4 {
+		t.Fatalf("expected tile 1 to be 4-step stairs, got type=%v steps=%d", w.Tiles[1].Type, len(w.Tiles[1].Steps))
+	}
+}

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"github.com/SamSoupSauce/project-engine/engine"
 )
 
 // Tile3D represents a single tile instantiated in 3D world space.
@@ -16,10 +16,10 @@ type Tile3D struct {
 	LayerName     string
 	Col           int
 	Row           int
-	Position      rl.Vector3
-	Size          rl.Vector3
-	Color         rl.Color
-	WireColor     rl.Color
+	Position      engine.Vector3
+	Size          engine.Vector3
+	Color         engine.Color
+	WireColor     engine.Color
 	IsSolid       bool
 	Type          TileType
 	Name          string
@@ -29,10 +29,10 @@ type Tile3D struct {
 
 	HasFlooring    bool
 	FloorGID       uint32
-	FloorColor     rl.Color
-	FloorWireColor rl.Color
-	FloorPosition  rl.Vector3
-	FloorSize      rl.Vector3
+	FloorColor     engine.Color
+	FloorWireColor engine.Color
+	FloorPosition  engine.Vector3
+	FloorSize      engine.Vector3
 
 	Walls        uint8
 	WallSegments []WallSegment
@@ -43,12 +43,12 @@ type Tile3D struct {
 	StairHeight float32
 	StartHeight float32
 	Steps       []StairStep
-	StepBoxes   []rl.BoundingBox
+	StepBoxes   []engine.BoundingBox
 
 	HasBottomCollision bool
-	BottomCollisionBox rl.BoundingBox
+	BottomCollisionBox engine.BoundingBox
 	HasTopCollision    bool
-	TopCollisionBox    rl.BoundingBox
+	TopCollisionBox    engine.BoundingBox
 
 	Elevation float32
 }
@@ -78,7 +78,7 @@ func (t *Tile3D) IsCorner() bool {
 }
 
 // GetBottomBoundingBox returns the bottom floor slab collision bounding box.
-func (t *Tile3D) GetBottomBoundingBox() rl.BoundingBox {
+func (t *Tile3D) GetBottomBoundingBox() engine.BoundingBox {
 	if t.HasBottomCollision {
 		return t.BottomCollisionBox
 	}
@@ -96,14 +96,14 @@ func (t *Tile3D) GetBottomBoundingBox() rl.BoundingBox {
 		worldZ = t.FloorPosition.Z
 		floorTopY = t.FloorPosition.Y + t.FloorSize.Y/2.0
 	}
-	return rl.NewBoundingBox(
-		rl.NewVector3(worldX-ts/2.0, floorTopY-FloorHeight, worldZ-ts/2.0),
-		rl.NewVector3(worldX+ts/2.0, floorTopY, worldZ+ts/2.0),
+	return engine.NewBoundingBox(
+		engine.NewVector3(worldX-ts/2.0, floorTopY-FloorHeight, worldZ-ts/2.0),
+		engine.NewVector3(worldX+ts/2.0, floorTopY, worldZ+ts/2.0),
 	)
 }
 
 // GetTopBoundingBox returns the top ceiling / cap slab collision bounding box.
-func (t *Tile3D) GetTopBoundingBox() rl.BoundingBox {
+func (t *Tile3D) GetTopBoundingBox() engine.BoundingBox {
 	if t.HasTopCollision {
 		return t.TopCollisionBox
 	}
@@ -123,14 +123,14 @@ func (t *Tile3D) GetTopBoundingBox() rl.BoundingBox {
 	}
 	wallH := DefaultWallHeight
 	wallTopY := floorTopY + wallH
-	return rl.NewBoundingBox(
-		rl.NewVector3(worldX-ts/2.0, wallTopY-FloorHeight, worldZ-ts/2.0),
-		rl.NewVector3(worldX+ts/2.0, wallTopY, worldZ+ts/2.0),
+	return engine.NewBoundingBox(
+		engine.NewVector3(worldX-ts/2.0, wallTopY-FloorHeight, worldZ-ts/2.0),
+		engine.NewVector3(worldX+ts/2.0, wallTopY, worldZ+ts/2.0),
 	)
 }
 
 // GetBoundingBox returns the encompassing 3D collision bounding box for this tile.
-func (t *Tile3D) GetBoundingBox() rl.BoundingBox {
+func (t *Tile3D) GetBoundingBox() engine.BoundingBox {
 	if (t.Type == TileStairs || t.IsStairs) && len(t.StepBoxes) > 0 {
 		bb := t.StepBoxes[0]
 		for _, sb := range t.StepBoxes[1:] {
@@ -175,9 +175,9 @@ func (t *Tile3D) GetBoundingBox() rl.BoundingBox {
 	halfW := t.Size.X / 2.0
 	halfH := t.Size.Y / 2.0
 	halfD := t.Size.Z / 2.0
-	return rl.NewBoundingBox(
-		rl.NewVector3(t.Position.X-halfW, t.Position.Y-halfH, t.Position.Z-halfD),
-		rl.NewVector3(t.Position.X+halfW, t.Position.Y+halfH, t.Position.Z+halfD),
+	return engine.NewBoundingBox(
+		engine.NewVector3(t.Position.X-halfW, t.Position.Y-halfH, t.Position.Z-halfD),
+		engine.NewVector3(t.Position.X+halfW, t.Position.Y+halfH, t.Position.Z+halfD),
 	)
 }
 
@@ -212,24 +212,24 @@ func (t *Tile3D) rebuildWallSegments(ts, baseY float32) {
 		if t.Walls&edge == 0 {
 			continue
 		}
-		var pos, size rl.Vector3
+		var pos, size engine.Vector3
 		var extFaces uint8 = 0
 		switch edge {
 		case WallEdgeNorth:
-			pos = rl.NewVector3(worldX, centerY, worldZ-ts/2.0+WallThickness/2.0)
-			size = rl.NewVector3(ts, wallH, WallThickness)
+			pos = engine.NewVector3(worldX, centerY, worldZ-ts/2.0+WallThickness/2.0)
+			size = engine.NewVector3(ts, wallH, WallThickness)
 			if t.IsExterior || t.Type == TileWallExterior { extFaces |= FaceNorth }
 		case WallEdgeSouth:
-			pos = rl.NewVector3(worldX, centerY, worldZ+ts/2.0-WallThickness/2.0)
-			size = rl.NewVector3(ts, wallH, WallThickness)
+			pos = engine.NewVector3(worldX, centerY, worldZ+ts/2.0-WallThickness/2.0)
+			size = engine.NewVector3(ts, wallH, WallThickness)
 			if t.IsExterior || t.Type == TileWallExterior { extFaces |= FaceSouth }
 		case WallEdgeWest:
-			pos = rl.NewVector3(worldX-ts/2.0+WallThickness/2.0, centerY, worldZ)
-			size = rl.NewVector3(WallThickness, wallH, ts)
+			pos = engine.NewVector3(worldX-ts/2.0+WallThickness/2.0, centerY, worldZ)
+			size = engine.NewVector3(WallThickness, wallH, ts)
 			if t.IsExterior || t.Type == TileWallExterior { extFaces |= FaceWest }
 		case WallEdgeEast:
-			pos = rl.NewVector3(worldX+ts/2.0-WallThickness/2.0, centerY, worldZ)
-			size = rl.NewVector3(WallThickness, wallH, ts)
+			pos = engine.NewVector3(worldX+ts/2.0-WallThickness/2.0, centerY, worldZ)
+			size = engine.NewVector3(WallThickness, wallH, ts)
 			if t.IsExterior || t.Type == TileWallExterior { extFaces |= FaceEast }
 		}
 
@@ -262,14 +262,14 @@ func (t *Tile3D) rebuildWallSegments(ts, baseY float32) {
 		if t.FloorSize.X > 0 { halfW = t.FloorSize.X / 2.0 }
 		if t.FloorSize.Z > 0 { halfD = t.FloorSize.Z / 2.0 }
 		wallTopY := floorTopY + wallH
-		t.BottomCollisionBox = rl.NewBoundingBox(
-			rl.NewVector3(worldX-halfW, floorTopY-FloorHeight, worldZ-halfD),
-			rl.NewVector3(worldX+halfW, floorTopY, worldZ+halfD),
+		t.BottomCollisionBox = engine.NewBoundingBox(
+			engine.NewVector3(worldX-halfW, floorTopY-FloorHeight, worldZ-halfD),
+			engine.NewVector3(worldX+halfW, floorTopY, worldZ+halfD),
 		)
 		t.HasTopCollision = true
-		t.TopCollisionBox = rl.NewBoundingBox(
-			rl.NewVector3(worldX-halfW, wallTopY-FloorHeight, worldZ-halfD),
-			rl.NewVector3(worldX+halfW, wallTopY, worldZ+halfD),
+		t.TopCollisionBox = engine.NewBoundingBox(
+			engine.NewVector3(worldX-halfW, wallTopY-FloorHeight, worldZ-halfD),
+			engine.NewVector3(worldX+halfW, wallTopY, worldZ+halfD),
 		)
 	} else {
 		t.HasBottomCollision = false
@@ -282,7 +282,7 @@ type MapSpawnPoint struct {
 	ID         int
 	Name       string
 	Type       string
-	Position   rl.Vector3
+	Position   engine.Vector3
 	Width      float32
 	Height     float32
 	Properties map[string]string
@@ -373,21 +373,25 @@ func (m3d *WorldMap3D) Build() {
 					LayerName:     layer.Name,
 					Col:           c,
 					Row:           r,
-					Position:      rl.NewVector3(worldX, m3d.BaseY+layerElevation+1.0/2.0, worldZ),
-					Size:          rl.NewVector3(ts, 1.0, ts),
+					Position:      engine.NewVector3(worldX, m3d.BaseY+layerElevation+1.0/2.0, worldZ),
+					Size:          engine.NewVector3(ts, 1.0, ts),
 					IsSolid:       true,
 					Type:          TileWall,
 					Name:          fmt.Sprintf("Tile GID %d", gid),
 					HasFlooring:   true,
-					FloorPosition: rl.NewVector3(worldX, m3d.BaseY+layerElevation+FloorHeight/2.0, worldZ),
-					FloorSize:     rl.NewVector3(ts, FloorHeight, ts),
+					FloorPosition: engine.NewVector3(worldX, m3d.BaseY+layerElevation+FloorHeight/2.0, worldZ),
+					FloorSize:     engine.NewVector3(ts, FloorHeight, ts),
 					Elevation:     layerElevation,
 				}
 
 				// Check custom properties from tileset
 				m3d.applyTileProperties(&tile)
 
-				tile.rebuildWallSegments(ts, m3d.BaseY+layerElevation)
+				if tile.Type == TileStairs || tile.IsStairs {
+					tile.rebuildStairSteps(ts, m3d.BaseY+layerElevation)
+				} else {
+					tile.rebuildWallSegments(ts, m3d.BaseY+layerElevation)
+				}
 				m3d.Tiles = append(m3d.Tiles, tile)
 			}
 		}
@@ -406,7 +410,7 @@ func (m3d *WorldMap3D) Build() {
 				ID:         obj.ID,
 				Name:       obj.Name,
 				Type:       obj.Type,
-				Position:   rl.NewVector3(worldX, m3d.BaseY, worldZ),
+				Position:   engine.NewVector3(worldX, m3d.BaseY, worldZ),
 				Width:      obj.Width,
 				Height:     obj.Height,
 				Properties: props,
@@ -428,13 +432,14 @@ func (m3d *WorldMap3D) applyTileProperties(t *Tile3D) {
 					for _, p := range tt.Props {
 						pName := strings.ToLower(p.Name)
 						pVal := strings.ToLower(p.GetVal())
-						if pName == "name" {
+						switch pName {
+						case "name":
 							t.Name = p.GetVal()
-						} else if pName == "solid" {
+						case "solid":
 							t.IsSolid = (pVal == "true" || pVal == "1")
-						} else if pName == "walls" {
+						case "walls":
 							t.Walls = parseWallMask(pVal)
-						} else if pName == "wall_type" {
+						case "wall_type":
 							if pVal == "exterior" {
 								t.Type = TileWallExterior
 								t.IsExterior = true
@@ -442,11 +447,121 @@ func (m3d *WorldMap3D) applyTileProperties(t *Tile3D) {
 								t.Type = TileWallInterior
 								t.IsInterior = true
 							}
+						case "type":
+							switch pVal {
+							case "floor":
+								t.Type = TileFloor
+								t.IsSolid = false
+							case "pillar":
+								t.Type = TilePillar
+								t.IsSolid = true
+							case "barricade":
+								t.Type = TileBarricade
+								t.IsSolid = true
+							case "stairs":
+								t.Type = TileStairs
+								t.IsStairs = true
+								t.IsSolid = true
+							case "grass":
+								t.Type = TileGrass
+								t.IsSolid = false
+							case "water":
+								t.Type = TileWater
+								t.IsSolid = false
+							}
+						case "stair_dir":
+							switch pVal {
+							case "north", "n":
+								t.StairDir = StairAscendNorth
+							case "south", "s":
+								t.StairDir = StairAscendSouth
+							case "east", "e":
+								t.StairDir = StairAscendEast
+							case "west", "w":
+								t.StairDir = StairAscendWest
+							}
+						case "step_count":
+							if v, err := strconv.Atoi(pVal); err == nil && v > 0 {
+								t.StepCount = v
+							}
+						case "stair_height":
+							if v, err := strconv.ParseFloat(pVal, 32); err == nil && v > 0 {
+								t.StairHeight = float32(v)
+							}
 						}
 					}
 				}
 			}
 		}
+	}
+}
+
+func (t *Tile3D) rebuildStairSteps(ts, baseY float32) {
+	t.IsStairs = true
+	t.Type = TileStairs
+	t.IsSolid = true
+	steps := t.StepCount
+	if steps <= 0 {
+		steps = 5
+		t.StepCount = steps
+	}
+	stairH := t.StairHeight
+	if stairH <= 0 {
+		stairH = DefaultWallHeight
+		t.StairHeight = stairH
+	}
+	floorTopY := baseY + FloorHeight
+	if t.HasFlooring && t.FloorSize.Y > 0 {
+		floorTopY = t.FloorPosition.Y + t.FloorSize.Y/2.0
+	}
+	t.StartHeight = floorTopY
+
+	worldX := t.Position.X
+	worldZ := t.Position.Z
+	if t.HasFlooring {
+		worldX = t.FloorPosition.X
+		worldZ = t.FloorPosition.Z
+	}
+
+	t.Steps = make([]StairStep, 0, steps)
+	t.StepBoxes = make([]engine.BoundingBox, 0, steps)
+	stepSpan := ts / float32(steps)
+	stepRise := stairH / float32(steps)
+
+	for i := 0; i < steps; i++ {
+		h := stepRise * float32(i+1)
+		centerY := floorTopY + h*0.5
+		var pos, size engine.Vector3
+		offset := -ts*0.5 + stepSpan*(float32(i)+0.5)
+		switch t.StairDir {
+		case StairAscendNorth:
+			// Low at South (+Z), high at North (-Z)
+			pos = engine.NewVector3(worldX, centerY, worldZ-offset)
+			size = engine.NewVector3(ts, h, stepSpan)
+		case StairAscendSouth:
+			// Low at North (-Z), high at South (+Z)
+			pos = engine.NewVector3(worldX, centerY, worldZ+offset)
+			size = engine.NewVector3(ts, h, stepSpan)
+		case StairAscendEast:
+			// Low at West (-X), high at East (+X)
+			pos = engine.NewVector3(worldX+offset, centerY, worldZ)
+			size = engine.NewVector3(stepSpan, h, ts)
+		case StairAscendWest:
+			// Low at East (+X), high at West (-X)
+			pos = engine.NewVector3(worldX-offset, centerY, worldZ)
+			size = engine.NewVector3(stepSpan, h, ts)
+		}
+		bb := engine.NewBoundingBox(
+			engine.NewVector3(pos.X-size.X*0.5, pos.Y-size.Y*0.5, pos.Z-size.Z*0.5),
+			engine.NewVector3(pos.X+size.X*0.5, pos.Y+size.Y*0.5, pos.Z+size.Z*0.5),
+		)
+		t.Steps = append(t.Steps, StairStep{
+			Index:       i,
+			Position:    pos,
+			Size:        size,
+			BoundingBox: bb,
+		})
+		t.StepBoxes = append(t.StepBoxes, bb)
 	}
 }
 
@@ -468,8 +583,8 @@ func parseWallMask(val string) uint8 {
 }
 
 // GetSolidBoxes returns the bounding boxes of all solid environment elements in the map.
-func (m3d *WorldMap3D) GetSolidBoxes() []rl.BoundingBox {
-	var boxes []rl.BoundingBox
+func (m3d *WorldMap3D) GetSolidBoxes() []engine.BoundingBox {
+	var boxes []engine.BoundingBox
 	for _, t := range m3d.Tiles {
 		if !t.IsSolid {
 			continue
@@ -513,7 +628,7 @@ func (m3d *WorldMap3D) ExportStaticColliderBounds() [][2][3]float32 {
 			{maxX, maxY, maxZ},
 		})
 	}
-	appendCenterSize := func(pos, size rl.Vector3) {
+	appendCenterSize := func(pos, size engine.Vector3) {
 		if size.X <= 0 || size.Y <= 0 || size.Z <= 0 {
 			return
 		}

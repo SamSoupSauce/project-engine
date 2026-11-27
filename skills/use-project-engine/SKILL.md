@@ -24,24 +24,30 @@ Whenever this skill is activated or the user issues a Project Engine task, you *
      - WebSocket: `wss://<tunnel-id>.trycloudflare.com/ws`
 
 2. **Verify Engine Execution & Flag Advisory:**
-   If the user has not started the engine yet, instruct them to launch `cmd/demo` with `--serve` (and optional `--tunnel`) plus an explicit `--token`:
+   If the user has not started the engine yet, instruct them to build/launch the engine executable (`bin/project-engine` / `bin/project-engine.exe` via `make` / `.\build.ps1`, or `go run ./cmd/demo`) with `--serve` (and optional `--tunnel`, `--root`, `--config`, `--init-dirs`) plus an explicit `--token`:
    ```bash
+   # Build default engine executable (sets CGO_LDFLAGS_ALLOW automatically):
+   make   # or .\build.ps1 on Windows
+
    # Local agent bridge server (empty token example):
-   go run ./cmd/demo --serve --address=127.0.0.1:4242 --token=""
+   ./bin/project-engine --serve --address=127.0.0.1:4242 --token=""
+
+   # Using a custom game/script/config/data root directory:
+   ./bin/project-engine --root examples/custom-game-root --serve --address=127.0.0.1:4242 --token=""
 
    # Local server + automated Cloudflare Quick Tunnel:
-   go run ./cmd/demo --serve --tunnel --address=127.0.0.1:4242 --token=""
+   ./bin/project-engine --serve --tunnel --address=127.0.0.1:4242 --token=""
    ```
-   Automated `--tunnel` behavior:
-   - Checks `PATH` and the local cache for `cloudflared`; if missing, automatically downloads the platform-specific binary.
-   - Launches an ad-hoc Cloudflare quick tunnel forwarding to `--address` (default `127.0.0.1:4242`).
-   - Prints the assigned `https://<id>.trycloudflare.com` URL directly in the in-engine Developer Console and Dear ImGui debug overlay.
+   Startup & runtime notes:
+   - **Folder Verification:** On boot the engine verifies `<root>/{assets,scripts,prefabs,config}` exist and fails fast with diagnostics if missing (pass `--init-dirs` to scaffold a new game root).
+   - **Graceful Script Errors:** Broken `.lua` scripts are logged to the Developer Console (`[ScriptError] ...`) and ImGui panel without crashing the engine or blocking other scripts.
+   - **Automated `--tunnel`:** Checks `PATH` and cache for `cloudflared` (downloading if missing), forwards to `--address`, and prints the `https://<id>.trycloudflare.com` URL in the Console and ImGui overlay.
 
-3. **Authentication Token & Sender Attribution:**
+3. **Auth Token & Sender Attribution:**
    - Check `$PE_SERVER_TOKEN` in your client environment if set, or ask/accept an explicit token value. If unset, default to `""`.
    - **CRITICAL:** The engine rejects requests with `401 Unauthorized` if the token field is omitted — even when launched with `--token=""`.
    - Always pass:
-     - HTTP headers: `X-Engine-Token: <token>` (or `Authorization: Bearer <token>`) and optional `X-Client-ID: <agent_name>` (e.g., `agy`, `claude`, `gemini`) so commands mirror in-game as `[agent:<id>] <cmd>`.
+     - HTTP headers: `X-Engine-Token: <token>` (or `Authorization: Bearer <token>`) and `X-Client-ID: <agent_name>` (e.g., `agy`, `claude`, `gemini`) so commands mirror in-game as `[agent:<id>] <cmd>`.
      - WebSocket query params: `?token=<token>&client_id=<agent_name>`.
 
 ---
@@ -52,10 +58,10 @@ Whenever this skill is activated or the user issues a Project Engine task, you *
 
 1. **Capability Audit (`engine.ping` + `engine.query_docs`):**
    - Immediately upon connecting, call `engine.ping` and then **`engine.query_docs`** (`params: {}` or `docs` in shell) to retrieve the live index of:
-     - Engine subsystems (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `prefabs`, `scripts`, `console`)
-     - Native Go shell commands (`help`, `docs`, `scripts.list`, `scripts.run`, `scripts.reload`, `scripts.unload`, `comp`, `prefabs`, `edit`, etc.)
+     - Engine subsystems (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `prefabs`, `scripts`, `console`, `workspace`, `tutorial`)
+     - Native Go shell commands (`help`, `docs`, `tutorial`, `scripts.list`, `scripts.run`, `scripts.reload`, `scripts.unload`, `comp`, `prefabs`, `edit`, etc.)
      - Dynamically registered Lua shell commands (`shell.register(...)`)
-     - Registered ECS component schemas (built-in and custom Lua `Component(...)` types)
+     - Registered ECS component schemas (built-in and custom Lua `Component(...)` types such as `Rotator`)
      - Engine lifecycle hooks (`load`, `unload`, `tick`, `event`, `spawn`, `despawn`)
    - Cache the returned capabilities in your working context.
 
@@ -100,7 +106,7 @@ websocat "${WS_URL:-ws://127.0.0.1:4242}/ws?token=${TOKEN}&client_id=agy"
 ```json
 { "id": 1, "op": "shell", "cmd": "docs" }
 { "id": 2, "op": "exec", "cmd": "print('hello'); return list_objects()" }
-{ "id": 3, "op": "query_docs", "params": { "topic": "jolt" } }
+{ "id": 3, "op": "query_docs", "params": { "topic": "workspace" } }
 ```
 Also supports `op`: `"ping"`, `"query_prefabs"`, `"query_components"`, `"query_docs"`, `"spawn_prefab"`, `"capture_frame"`, `"console_exec"`, or `"rpc"`.
 
@@ -115,15 +121,16 @@ Also supports `op`: `"ping"`, `"query_prefabs"`, `"query_components"`, `"query_d
 ## 4. Core Action Playbooks
 
 ### 1. Dynamic Documentation & Capability Audit (`engine.query_docs`)
-Query the full runtime index or a specific topic (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, or any command name):
+Query the full runtime index or a specific topic (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `workspace`, `tutorial`, or any command name):
 ```json
 { "jsonrpc": "2.0", "id": "docs-idx", "method": "engine.query_docs", "params": { "topic": "" } }
 ```
 ```json
-{ "jsonrpc": "2.0", "id": "docs-topic", "method": "engine.query_docs", "params": { "topic": "spawn_box" } }
+{ "jsonrpc": "2.0", "id": "docs-topic", "method": "engine.query_docs", "params": { "topic": "workspace" } }
 ```
 
 ### 2. Introspection (`engine.ping`, `engine.query_prefabs`, `engine.query_components`)
+The default Kitchen Sink Demo exposes `rainbow_cube`, `kitchen_toaster`, `lamp_ceramic`, `nightstand_drawer`, `tiles`, `hud_accent`, `hud_status`, and `hud_crosshair`:
 ```json
 { "jsonrpc": "2.0", "id": "1", "method": "engine.ping", "params": {} }
 { "jsonrpc": "2.0", "id": "2", "method": "engine.query_prefabs", "params": { "query": "" } }
@@ -131,11 +138,11 @@ Query the full runtime index or a specific topic (`jolt`, `shell.register`, `pre
 ```
 
 ### 3. Unified Shell & Script Lifecycle (`engine.console_exec`)
-Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs through the unified `ExecuteWithContext` funnel (zero backdoors) and mirrors `[agent:<id>] <cmd>` to the in-game console:
+Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs through `ExecuteWithContext` and mirrors `[agent:<id>] <cmd>` to the in-game console:
 ```json
 { "jsonrpc": "2.0", "id": "4", "method": "engine.console_exec", "params": { "cmd": "scripts.list" } }
-{ "jsonrpc": "2.0", "id": "5", "method": "engine.console_exec", "params": { "cmd": "scripts.run scripts/test_tools.lua" } }
-{ "jsonrpc": "2.0", "id": "6", "method": "engine.console_exec", "params": { "cmd": "scripts.reload test_tools" } }
+{ "jsonrpc": "2.0", "id": "5", "method": "engine.console_exec", "params": { "cmd": "scripts.run examples/lua/01_hello_shell_commands.lua" } }
+{ "jsonrpc": "2.0", "id": "6", "method": "engine.console_exec", "params": { "cmd": "workspace_paths()" } }
 ```
 
 ### 4. Scene Synthesis (`engine.spawn_prefab`)
@@ -145,9 +152,9 @@ Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs thro
   "id": "7",
   "method": "engine.spawn_prefab",
   "params": {
-    "name": "rainbow_cube",
-    "id": "cube_spawn_1",
-    "position": { "x": 2.0, "y": 1.0, "z": -1.5 },
+    "name": "kitchen_toaster",
+    "id": "toaster_spawn_1",
+    "position": { "x": 1.5, "y": 1.0, "z": -1.0 },
     "pick": true
   }
 }
@@ -166,4 +173,4 @@ Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs thro
 ---
 
 ## 5. Reference Examples
-See [examples/](examples/) for ready-to-run shell scripts (`ping.sh`, `query_docs.sh`, `query_prefabs_and_components.sh`, `spawn_prefab.sh`, `console_exec.sh`, `capture_frame.sh`, `ws_stream.sh`).
+See [examples/](examples/) for ready-to-run shell scripts (`ping.sh`, `query_docs.sh`, `query_prefabs_and_components.sh`, `spawn_prefab.sh`, `console_exec.sh`, `run_script_and_refresh_docs.sh`, `capture_frame.sh`, `ws_stream.sh`).

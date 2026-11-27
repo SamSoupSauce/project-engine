@@ -576,13 +576,7 @@ func (lc *LuaComponent) lookupMethodLocked(name string) *lua.LFunction {
 }
 
 func (b *LuaBridge) recordHookError(compName, hookName string, err error) {
-	b.dataMu.Lock()
-	b.outputLogs = append(b.outputLogs, fmt.Sprintf("component hook error [%s:%s]: %v", compName, hookName, err))
-	cb := b.OnScriptError
-	b.dataMu.Unlock()
-	if cb != nil {
-		cb(compName, hookName, err)
-	}
+	b.RecordScriptError(compName, hookName, err)
 }
 
 func (b *LuaBridge) registerLuaComponentHook(obj *engine.GameObject, hookName string, lc *LuaComponent) {
@@ -949,8 +943,46 @@ func cloneLuaTable(L *lua.LState, src *lua.LTable, seen map[*lua.LTable]*lua.LTa
 	return dst
 }
 
+// ScriptLoadError describes a single script file that failed during LoadScriptsDir.
+type ScriptLoadError struct {
+	Path string
+	Err  error
+}
+
+func (e ScriptLoadError) Error() string {
+	return fmt.Sprintf("%s: %v", e.Path, e.Err)
+}
+
+func (e ScriptLoadError) Unwrap() error {
+	return e.Err
+}
+
+// ScriptLoadErrors aggregates non-fatal script loading failures so remaining scripts still load.
+type ScriptLoadErrors []ScriptLoadError
+
+func (e ScriptLoadErrors) Error() string {
+	if len(e) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(e))
+	for _, item := range e {
+		parts = append(parts, item.Error())
+	}
+	return fmt.Sprintf("luabridge: %d script(s) failed to load: %s", len(e), strings.Join(parts, "; "))
+}
+
+func (e ScriptLoadErrors) Unwrap() []error {
+	out := make([]error, 0, len(e))
+	for _, item := range e {
+		out = append(out, item.Err)
+	}
+	return out
+}
+
 // LoadScriptsDir recursively loads *.lua scripts under dir (skipping scripts/ui LuaJIT FFI
 // and scripts/props PropManifest directories) so scripts can register custom Component types.
+// If a script fails to compile or execute, the error is recorded gracefully via RecordScriptError
+// and loading continues for all remaining scripts.
 func (b *LuaBridge) LoadScriptsDir(dir string) ([]string, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -985,16 +1017,23 @@ func (b *LuaBridge) LoadScriptsDir(dir string) ([]string, error) {
 
 	sort.Strings(files)
 	loaded := make([]string, 0, len(files))
+	var loadErrs ScriptLoadErrors
 	b.stateMu.Lock()
-	defer b.stateMu.Unlock()
 	prevLoading := b.loadingScriptPath
-	defer func() { b.loadingScriptPath = prevLoading }()
 	for _, f := range files {
 		b.loadingScriptPath = f
 		if err := b.L.DoFile(f); err != nil {
-			return loaded, fmt.Errorf("luabridge: load script %q: %w", f, err)
+			loadErrs = append(loadErrs, ScriptLoadError{Path: f, Err: err})
+			b.RecordScriptError(f, "load", err)
+			continue
 		}
 		loaded = append(loaded, f)
+	}
+	b.loadingScriptPath = prevLoading
+	b.stateMu.Unlock()
+
+	if len(loadErrs) > 0 {
+		return loaded, loadErrs
 	}
 	return loaded, nil
 }

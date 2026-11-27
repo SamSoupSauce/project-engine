@@ -131,7 +131,9 @@ func (sc *ScriptComponent) Init(owner *engine.GameObject) {
 	sc.mu.Unlock()
 
 	if !alreadyLoaded && bridge != nil && strings.TrimSpace(path) != "" {
-		_ = sc.loadFromFile(path)
+		if err := sc.loadFromFile(path); err != nil {
+			bridge.RecordScriptError(path, "init", err)
+		}
 	}
 }
 
@@ -294,13 +296,7 @@ func (sc *ScriptComponent) OnRenderWithScriptName(gfx *engine.Renderer, scriptNa
 		Protect: true,
 	}, args...); err != nil {
 		sc.setLastError(err)
-		bridge.dataMu.Lock()
-		bridge.outputLogs = append(bridge.outputLogs, fmt.Sprintf("script error [%s:%s]: %v", scriptPath, hookName, err))
-		cb := bridge.OnScriptError
-		bridge.dataMu.Unlock()
-		if cb != nil {
-			cb(scriptPath, hookName, err)
-		}
+		bridge.RecordScriptError(scriptPath, hookName, err)
 	}
 }
 
@@ -334,13 +330,7 @@ func (sc *ScriptComponent) callHook(hookName string, buildArgs func(L *lua.LStat
 		Protect: true,
 	}, args...); err != nil {
 		sc.setLastError(err)
-		bridge.dataMu.Lock()
-		bridge.outputLogs = append(bridge.outputLogs, fmt.Sprintf("script error [%s:%s]: %v", scriptPath, hookName, err))
-		cb := bridge.OnScriptError
-		bridge.dataMu.Unlock()
-		if cb != nil {
-			cb(scriptPath, hookName, err)
-		}
+		bridge.RecordScriptError(scriptPath, hookName, err)
 	}
 }
 

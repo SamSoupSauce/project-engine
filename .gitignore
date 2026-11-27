@@ -7,6 +7,10 @@
 *.dll
 *.so
 *.dylib
+bin/
+dist/
+imgui.ini
+config/tutorial_state.json
 
 # Test binary, built with `go test -c`
 *.test

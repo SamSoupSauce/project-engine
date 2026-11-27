@@ -565,6 +565,9 @@ func (s *PrefabService) attachComponentFromSpec(obj *engine.GameObject, spec eng
 
 	case "Mesh":
 		path := detailString(details, "file_path")
+		if s.Bridge != nil {
+			path = s.Bridge.ResolveWorkspacePath(path)
+		}
 		mc := engine.NewMeshComponent(path)
 		if mc.LoadErr != nil {
 			return mc.LoadErr

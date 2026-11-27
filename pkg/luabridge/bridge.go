@@ -2,6 +2,7 @@ package luabridge
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -10,6 +11,14 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
 )
+
+// ScriptErrorRecord captures a script load or runtime hook error without crashing the engine.
+type ScriptErrorRecord struct {
+	ScriptPath string    `json:"script_path"`
+	Hook       string    `json:"hook"`
+	Message    string    `json:"message"`
+	Timestamp  time.Time `json:"timestamp"`
+}
 
 // CommandHandler defines a handler for registered developer console / CLI commands.
 type CommandHandler func(args []string) (string, error)
@@ -30,6 +39,7 @@ type LuaBridge struct {
 	scriptEditor      *ScriptEditorService
 	prefabService     *PrefabService
 	shell             *ShellRegistry
+	workspacePaths    *engine.ResolvedWorkspacePaths
 	activeExecCtx     *ExecutionContext
 	loadingScriptPath string
 	scene             *engine.BaseScene
@@ -38,6 +48,7 @@ type LuaBridge struct {
 	dataMu            sync.RWMutex
 	stateMu           reentrantMutex
 	outputLogs        []string
+	scriptErrors      []ScriptErrorRecord
 	execCapture       *[]string
 	logSinks          []func(line string)
 	pendingHelpArg    string
@@ -119,6 +130,112 @@ func (b *LuaBridge) AddLogSink(fn func(line string)) {
 	}
 	b.dataMu.Lock()
 	b.logSinks = append(b.logSinks, fn)
+	b.dataMu.Unlock()
+}
+
+// SetWorkspacePaths configures the active game/script/prefab/config root paths on the bridge,
+// ScriptEditorService, and PrefabService.
+func (b *LuaBridge) SetWorkspacePaths(paths engine.ResolvedWorkspacePaths) {
+	if b == nil {
+		return
+	}
+	cp := paths
+	b.dataMu.Lock()
+	b.workspacePaths = &cp
+	b.dataMu.Unlock()
+	if b.scriptEditor != nil && strings.TrimSpace(paths.ScriptsDir) != "" {
+		b.scriptEditor.SetScriptsDir(paths.ScriptsDir)
+	}
+	if b.prefabService != nil && strings.TrimSpace(paths.PrefabsDir) != "" {
+		b.prefabService.SetPrefabsDir(paths.PrefabsDir)
+	}
+}
+
+// WorkspacePaths returns the configured ResolvedWorkspacePaths, or default paths when unset.
+func (b *LuaBridge) WorkspacePaths() engine.ResolvedWorkspacePaths {
+	if b != nil {
+		b.dataMu.RLock()
+		wp := b.workspacePaths
+		b.dataMu.RUnlock()
+		if wp != nil {
+			return *wp
+		}
+	}
+	_, def, _ := engine.LoadWorkspaceConfig(".", false, "")
+	return def
+}
+
+// ResolveWorkspacePath resolves relOrAbs against configured workspace paths (if any).
+func (b *LuaBridge) ResolveWorkspacePath(relOrAbs string) string {
+	trimmed := strings.TrimSpace(relOrAbs)
+	if trimmed == "" {
+		return ""
+	}
+	if b != nil {
+		b.dataMu.RLock()
+		wp := b.workspacePaths
+		b.dataMu.RUnlock()
+		if wp != nil {
+			return wp.ResolvePath(trimmed)
+		}
+	}
+	return filepath.Clean(trimmed)
+}
+
+// RecordScriptError records a Lua script load or runtime hook error cleanly without panicking,
+// forwards it to the Console, and invokes OnScriptError if registered.
+func (b *LuaBridge) RecordScriptError(scriptPath, hook string, err error) {
+	if b == nil || err == nil {
+		return
+	}
+	rec := ScriptErrorRecord{
+		ScriptPath: strings.TrimSpace(scriptPath),
+		Hook:       strings.TrimSpace(hook),
+		Message:    err.Error(),
+		Timestamp:  time.Now(),
+	}
+	formatted := fmt.Sprintf("[ScriptError] %s (%s): %v", rec.ScriptPath, rec.Hook, err)
+
+	b.dataMu.Lock()
+	b.scriptErrors = append(b.scriptErrors, rec)
+	b.outputLogs = append(b.outputLogs, formatted)
+	c := b.console
+	cb := b.OnScriptError
+	sinks := make([]func(string), len(b.logSinks))
+	copy(sinks, b.logSinks)
+	b.dataMu.Unlock()
+
+	if c != nil {
+		c.Print(formatted, LineError)
+	} else {
+		for _, sink := range sinks {
+			sink(formatted)
+		}
+	}
+	if cb != nil {
+		cb(scriptPath, hook, err)
+	}
+}
+
+// GetScriptErrors returns a snapshot of recorded script load and runtime errors.
+func (b *LuaBridge) GetScriptErrors() []ScriptErrorRecord {
+	if b == nil {
+		return nil
+	}
+	b.dataMu.RLock()
+	defer b.dataMu.RUnlock()
+	out := make([]ScriptErrorRecord, len(b.scriptErrors))
+	copy(out, b.scriptErrors)
+	return out
+}
+
+// ClearScriptErrors clears the recorded script error history.
+func (b *LuaBridge) ClearScriptErrors() {
+	if b == nil {
+		return
+	}
+	b.dataMu.Lock()
+	b.scriptErrors = nil
 	b.dataMu.Unlock()
 }
 
@@ -556,6 +673,19 @@ func (b *LuaBridge) registerStandardEngineAPIs() {
 		}
 		b.EmitConsole(txt, LineInfo)
 		return 0
+	}))
+
+	// workspace_paths() returns the resolved root, assets, scripts, prefabs, and config directories.
+	b.L.SetGlobal("workspace_paths", b.L.NewFunction(func(L *lua.LState) int {
+		wp := b.WorkspacePaths()
+		tbl := L.NewTable()
+		tbl.RawSetString("root", lua.LString(filepath.ToSlash(wp.RootDir)))
+		tbl.RawSetString("assets", lua.LString(filepath.ToSlash(wp.AssetsDir)))
+		tbl.RawSetString("scripts", lua.LString(filepath.ToSlash(wp.ScriptsDir)))
+		tbl.RawSetString("prefabs", lua.LString(filepath.ToSlash(wp.PrefabsDir)))
+		tbl.RawSetString("config", lua.LString(filepath.ToSlash(wp.ConfigDir)))
+		L.Push(tbl)
+		return 1
 	}))
 
 	// clear() clears attached console output

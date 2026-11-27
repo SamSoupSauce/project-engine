@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" orientation="orthogonal" width="8" height="8" tilewidth="32" tileheight="32">
+ <tileset firstgid="1" name="kitchen_sink_tiles" tilewidth="32" tilecount="16">
+  <tile id="0">
+   <properties>
+    <property name="name" value="Slate Floor"/>
+    <property name="type" value="floor"/>
+    <property name="solid" type="bool" value="false"/>
+   </properties>
+  </tile>
+  <tile id="1">
+   <properties>
+    <property name="name" value="Exterior Corner NW"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="north,west"/>
+   </properties>
+  </tile>
+  <tile id="2">
+   <properties>
+    <property name="name" value="Exterior Wall North"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="north"/>
+   </properties>
+  </tile>
+  <tile id="3">
+   <properties>
+    <property name="name" value="Exterior Corner NE"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="north,east"/>
+   </properties>
+  </tile>
+  <tile id="4">
+   <properties>
+    <property name="name" value="Exterior Wall West"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="west"/>
+   </properties>
+  </tile>
+  <tile id="5">
+   <properties>
+    <property name="name" value="Exterior Wall East"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="east"/>
+   </properties>
+  </tile>
+  <tile id="6">
+   <properties>
+    <property name="name" value="Exterior Corner SW"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="south,west"/>
+   </properties>
+  </tile>
+  <tile id="7">
+   <properties>
+    <property name="name" value="Exterior Corner SE"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="exterior"/>
+    <property name="walls" value="south,east"/>
+   </properties>
+  </tile>
+  <tile id="8">
+   <properties>
+    <property name="name" value="Interior Divider Wall"/>
+    <property name="solid" type="bool" value="true"/>
+    <property name="wall_type" value="interior"/>
+    <property name="walls" value="east"/>
+   </properties>
+  </tile>
+  <tile id="9">
+   <properties>
+    <property name="name" value="Stone Pillar"/>
+    <property name="type" value="pillar"/>
+    <property name="solid" type="bool" value="true"/>
+   </properties>
+  </tile>
+  <tile id="10">
+   <properties>
+    <property name="name" value="Wood Stairs North"/>
+    <property name="type" value="stairs"/>
+    <property name="stair_dir" value="north"/>
+    <property name="step_count" type="int" value="5"/>
+    <property name="stair_height" type="float" value="1.4"/>
+   </properties>
+  </tile>
+  <tile id="11">
+   <properties>
+    <property name="name" value="Grass Courtyard"/>
+    <property name="type" value="grass"/>
+    <property name="solid" type="bool" value="false"/>
+   </properties>
+  </tile>
+ </tileset>
+ <layer id="1" name="Ground" width="8" height="8">
+  <data encoding="csv">
+2,3,3,3,3,3,3,4,
+5,1,1,1,1,1,1,6,
+5,1,10,1,1,9,1,6,
+5,1,1,1,1,1,11,6,
+5,1,1,1,1,1,1,6,
+5,1,1,1,1,1,1,6,
+5,1,1,1,1,1,10,6,
+7,12,12,1,1,12,12,8
+  </data>
+ </layer>
+ <layer id="2" name="Mezzanine" width="8" height="8">
+  <properties>
+   <property name="elevation" type="float" value="1.4"/>
+  </properties>
+  <data encoding="csv">
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,1,1,
+0,0,0,0,0,0,1,1,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0
+  </data>
+ </layer>
+ <objectgroup id="3" name="PropSpawns">
+  <object id="1" name="RainbowCube" type="prop" x="96" y="128" width="32" height="32">
+   <properties>
+    <property name="prefab" value="rainbow_cube"/>
+   </properties>
+  </object>
+  <object id="2" name="KitchenToaster" type="prop" x="128" y="128" width="32" height="32">
+   <properties>
+    <property name="prefab" value="kitchen_toaster"/>
+   </properties>
+  </object>
+  <object id="3" name="CeramicLamp" type="prop" x="160" y="128" width="32" height="32">
+   <properties>
+    <property name="prefab" value="lamp_ceramic"/>
+   </properties>
+  </object>
+  <object id="4" name="NightstandDrawer" type="prop" x="192" y="128" width="32" height="32">
+   <properties>
+    <property name="prefab" value="nightstand_drawer"/>
+   </properties>
+  </object>
+ </objectgroup>
+</map>

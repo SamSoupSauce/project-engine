@@ -140,10 +140,29 @@ var builtinSubsystemDocs = map[string]DocsSubsystemItem{
 	"console": {
 		Topic:       "console",
 		Description: "Unified command execution funnel (ExecuteWithContext) shared by Dear ImGui Console, JSON-RPC /rpc, and WebSocket /ws.",
-		Usage:       "help [cmd] | docs [topic] | pick <nameOrID> | clear",
+		Usage:       "help [cmd] | docs [topic] | pick <nameOrID> | tutorial | clear",
 		Details: []string{
 			"All inputs route through ExecuteWithContext(ctx, rawCommand) with Sender attribution ('user' or 'agent:<id>').",
 			"Remote agent invocations mirror '[agent:<id>] <cmd>' and resulting output into the in-game Console scrollback.",
+		},
+	},
+	"workspace": {
+		Topic:       "workspace",
+		Description: "Configurable project root (--root, --config, engine.json), startup folder verification, and --init-dirs scaffolding.",
+		Usage:       "project-engine --root <dir> --config <file> [--init-dirs] | workspace_paths()",
+		Details: []string{
+			"Default root is '.' with subdirectories assets/, scripts/, prefabs/, and config/ (configurable via engine.json).",
+			"Startup verifies all required folders exist and fails fast with actionable instructions unless --init-dirs is passed.",
+			"Lua helper workspace_paths() returns { root, assets, scripts, prefabs, config }.",
+		},
+	},
+	"tutorial": {
+		Topic:       "tutorial",
+		Description: "First-run interactive Dear ImGui quick-start tutorial with persisted 'Do not show again' preference.",
+		Usage:       "tutorial (console command) | config/tutorial_state.json",
+		Details: []string{
+			"Opens automatically on first run unless 'Do not show again' is checked and persisted in config/tutorial_state.json.",
+			"Can be reopened anytime via the 'Tutorial' button in the Demo Controls window or the `tutorial` console command.",
 		},
 	},
 }
