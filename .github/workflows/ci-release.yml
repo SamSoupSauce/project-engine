@@ -57,7 +57,7 @@ jobs:
 
     env:
       CGO_ENABLED: "1"
-      CGO_LDFLAGS_ALLOW: "-l:.*\\.a"
+      CGO_LDFLAGS_ALLOW: ".*"
 
     steps:
       - name: Checkout repository
@@ -94,7 +94,7 @@ jobs:
           Compress-Archive -Path "dist\project-engine\*" -DestinationPath "release-artifacts\project-engine-$ver-windows-amd64.zip" -Force
 
       # -----------------------------------------------------------------------
-      # Windows ARM64: cross-compile JoltC, LuaJIT & Go using llvm-mingw
+      # Windows ARM64: cross-compile JoltC, LuaJIT, cimgui & Go using llvm-mingw
       # -----------------------------------------------------------------------
       - name: Build native dependencies & cross-compile (Windows ARM64)
         if: matrix.goos == 'windows' && matrix.goarch == 'arm64'
@@ -105,6 +105,9 @@ jobs:
           NATIVE_DIR="${RUNNER_TEMP}/native-windows-arm64"
           mkdir -p "${NATIVE_DIR}/lib"
 
+          # Ensure MSYS2 make is available in PATH for LuaJIT build
+          export PATH="/c/msys64/usr/bin:${PATH}"
+
           # Fetch llvm-mingw (ucrt x86_64 host -> aarch64-w64-mingw32 target)
           MINGW_URL=$(curl -fsSL https://api.github.com/repos/mstorsjo/llvm-mingw/releases/latest \
             | grep -oE 'https://[^"]+ucrt-x86_64\.zip' | head -n1)
@@ -113,7 +116,7 @@ jobs:
           MINGW_BIN=$(find "${RUNNER_TEMP}/llvm-mingw-extract" -maxdepth 2 -type d -name bin | head -n1)
           export PATH="${MINGW_BIN}:${PATH}"
 
-          # Build JoltC static library for Windows ARM64
+          # 1. Build static JoltC + JoltPhysics for Windows ARM64
           git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
             -DCMAKE_SYSTEM_NAME=Windows \
@@ -121,27 +124,54 @@ jobs:
             -DCMAKE_C_COMPILER=aarch64-w64-mingw32-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-w64-mingw32-g++ \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DJPH_BUILD_SHARED_LIBRARY=OFF \
-            -DJPH_OBJECT_LAYER_BITS=32
+            -DJPH_BUILD_SHARED=OFF \
+            -DJPH_SAMPLES=OFF \
+            -DJPH_TESTS=OFF \
+            -DJPH_INSTALL=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            -DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF -DUSE_AVX=OFF -DUSE_AVX2=OFF \
+            -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF -DUSE_F16C=OFF -DUSE_FMADD=OFF
           cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
-          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+          JOLTC_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' | head -n1)
+          JOLT_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libJolt.a' | head -n1)
+          test -s "${JOLTC_A}" && test -s "${JOLT_A}"
+          printf "CREATE %s\nADDLIB %s\nADDLIB %s\nSAVE\nEND\n" \
+            "${NATIVE_DIR}/lib/libjoltc.a" "${JOLTC_A}" "${JOLT_A}" | llvm-ar -M
+          aarch64-w64-mingw32-ranlib "${NATIVE_DIR}/lib/libjoltc.a"
+          test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          # Build LuaJIT 2.1 static library for Windows ARM64
+          # 2. Build static LuaJIT 2.1 for Windows ARM64
           git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
           make -C "${RUNNER_TEMP}/luajit/src" -j4 \
-            HOST_CC="gcc" \
+            HOST_CC="x86_64-w64-mingw32-gcc" \
             CROSS=aarch64-w64-mingw32- \
             TARGET_SYS=Windows \
             BUILDMODE=static
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
+          test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
 
-          # Cross-compile Project Engine binary for windows/arm64
+          # 3. Build cimgui.a for Windows ARM64 (cimgui-go only prebundles windows/x64)
+          go mod download
+          CIMGUI_MOD=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
+          cp -R "${CIMGUI_MOD}" "${RUNNER_TEMP}/cimgui-src"
+          chmod -R u+w "${RUNNER_TEMP}/cimgui-src"
+          cmake -S "${RUNNER_TEMP}/cimgui-src/lib" -B "${RUNNER_TEMP}/cimgui-build" -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_SYSTEM_PROCESSOR=ARM64 \
+            -DCMAKE_C_COMPILER=aarch64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-w64-mingw32-g++ \
+            -DCMAKE_CXX_FLAGS="-Wno-c++11-narrowing" \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build "${RUNNER_TEMP}/cimgui-build" --parallel
+          cp "${RUNNER_TEMP}/cimgui-build/cimgui.a" "${NATIVE_DIR}/lib/cimgui.a"
+          test -s "${NATIVE_DIR}/lib/cimgui.a"
+
+          # 4. Cross-compile Project Engine binary for windows/arm64
           mkdir -p dist/project-engine/config release-artifacts
           GOOS=windows GOARCH=arm64 \
             CC=aarch64-w64-mingw32-gcc \
             CXX=aarch64-w64-mingw32-g++ \
-            CGO_LDFLAGS="-L${NATIVE_DIR}/lib" \
+            CGO_LDFLAGS="-L${NATIVE_DIR}/lib ${NATIVE_DIR}/lib/cimgui.a -lopengl32 -limm32 -lc++" \
             go build -ldflags "-X github.com/SamSoupSauce/project-engine/engine.Version=${VER}" \
             -o dist/project-engine/project-engine.exe ./cmd/demo
 
@@ -159,26 +189,59 @@ jobs:
           sudo apt-get install -y \
             build-essential cmake ninja-build pkg-config \
             libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev \
+            libxxf86vm-dev libxkbcommon-dev libwayland-dev \
             libluajit-5.1-dev
 
-      - name: Build JoltC, test & package (Ubuntu LTS)
+      - name: Build JoltC (and cimgui on ARM64), test & package (Ubuntu LTS)
         if: matrix.goos == 'linux'
         run: |
           set -euo pipefail
           VER="${{ steps.ver.outputs.version }}"
-          NATIVE_DIR="${RUNNER_TEMP}/native-linux-${{ matrix.goarch }}"
+          ARCH="${{ matrix.goarch }}"
+          NATIVE_DIR="${RUNNER_TEMP}/native-linux-${ARCH}"
           mkdir -p "${NATIVE_DIR}/lib"
 
+          # 1. Build static JoltC + JoltPhysics and merge into libjoltc.a
+          SIMD_FLAGS=""
+          if [ "${ARCH}" = "arm64" ]; then
+            SIMD_FLAGS="-DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF -DUSE_AVX=OFF -DUSE_AVX2=OFF -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF -DUSE_F16C=OFF -DUSE_FMADD=OFF"
+          fi
           git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DJPH_BUILD_SHARED_LIBRARY=OFF \
-            -DJPH_OBJECT_LAYER_BITS=32
+            -DJPH_BUILD_SHARED=OFF \
+            -DJPH_SAMPLES=OFF \
+            -DJPH_TESTS=OFF \
+            -DJPH_INSTALL=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            ${SIMD_FLAGS}
           cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
-          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+          JOLTC_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' | head -n1)
+          JOLT_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libJolt.a' | head -n1)
+          test -s "${JOLTC_A}" && test -s "${JOLT_A}"
+          printf "CREATE %s\nADDLIB %s\nADDLIB %s\nSAVE\nEND\n" \
+            "${NATIVE_DIR}/lib/libjoltc.a" "${JOLTC_A}" "${JOLT_A}" | ar -M
+          ranlib "${NATIVE_DIR}/lib/libjoltc.a"
+          test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          export CGO_LDFLAGS="-L${NATIVE_DIR}/lib"
+          EXTRA_CGO_LDFLAGS="-L${NATIVE_DIR}/lib"
+
+          # 2. On linux/arm64, build cimgui.a (cimgui-go only prebundles linux/x64)
+          if [ "${ARCH}" = "arm64" ]; then
+            go mod download
+            CIMGUI_MOD=$(go list -m -f '{{.Dir}}' github.com/AllenDang/cimgui-go)
+            cp -R "${CIMGUI_MOD}" "${RUNNER_TEMP}/cimgui-src"
+            chmod -R u+w "${RUNNER_TEMP}/cimgui-src"
+            cmake -S "${RUNNER_TEMP}/cimgui-src/lib" -B "${RUNNER_TEMP}/cimgui-build" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_CXX_FLAGS="-Wno-changes-meaning -Wno-invalid-conversion -fpermissive"
+            cmake --build "${RUNNER_TEMP}/cimgui-build" --parallel
+            cp "${RUNNER_TEMP}/cimgui-build/cimgui.a" "${NATIVE_DIR}/lib/cimgui.a"
+            test -s "${NATIVE_DIR}/lib/cimgui.a"
+            EXTRA_CGO_LDFLAGS="${EXTRA_CGO_LDFLAGS} ${NATIVE_DIR}/lib/cimgui.a -lGL -lX11 -lpthread -ldl -lm"
+          fi
+
+          export CGO_LDFLAGS="${EXTRA_CGO_LDFLAGS}"
           go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
           go test -race -count=1 ./...
 
@@ -189,7 +252,7 @@ jobs:
 
           cp engine.json dist/project-engine/engine.json
           cp -R assets scripts prefabs dist/project-engine/
-          tar -czf "release-artifacts/project-engine-${VER}-linux-${{ matrix.goarch }}.tar.gz" -C dist/project-engine .
+          tar -czf "release-artifacts/project-engine-${VER}-linux-${ARCH}.tar.gz" -C dist/project-engine .
 
       # -----------------------------------------------------------------------
       # macOS ARM64 (Apple Silicon) & Intel (x86_64)
@@ -201,24 +264,36 @@ jobs:
           VER="${{ steps.ver.outputs.version }}"
           ARCH="${{ matrix.goarch }}"
           OSX_ARCH="arm64"
+          SIMD_FLAGS="-DUSE_SSE4_1=OFF -DUSE_SSE4_2=OFF -DUSE_AVX=OFF -DUSE_AVX2=OFF -DUSE_LZCNT=OFF -DUSE_TZCNT=OFF -DUSE_F16C=OFF -DUSE_FMADD=OFF"
           if [ "${ARCH}" = "amd64" ]; then
             OSX_ARCH="x86_64"
+            SIMD_FLAGS=""
           fi
 
           NATIVE_DIR="${RUNNER_TEMP}/native-darwin-${ARCH}"
           mkdir -p "${NATIVE_DIR}/lib"
 
+          # 1. Build static JoltC + JoltPhysics and merge into libjoltc.a
           git clone --depth 1 https://github.com/amerkoleci/joltc.git "${RUNNER_TEMP}/joltc"
           cmake -S "${RUNNER_TEMP}/joltc" -B "${RUNNER_TEMP}/joltc-build" \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_SYSTEM_PROCESSOR="${OSX_ARCH}" \
             -DCMAKE_OSX_ARCHITECTURES="${OSX_ARCH}" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="13.0" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DJPH_BUILD_SHARED_LIBRARY=OFF \
-            -DJPH_OBJECT_LAYER_BITS=32
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="15.0" \
+            -DJPH_BUILD_SHARED=OFF \
+            -DJPH_SAMPLES=OFF \
+            -DJPH_TESTS=OFF \
+            -DJPH_INSTALL=OFF \
+            -DINTERPROCEDURAL_OPTIMIZATION=OFF \
+            ${SIMD_FLAGS}
           cmake --build "${RUNNER_TEMP}/joltc-build" --parallel
-          find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' -exec cp {} "${NATIVE_DIR}/lib/libjoltc.a" \;
+          JOLTC_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libjoltc.a' | head -n1)
+          JOLT_A=$(find "${RUNNER_TEMP}/joltc-build" -name 'libJolt.a' | head -n1)
+          test -s "${JOLTC_A}" && test -s "${JOLT_A}"
+          libtool -static -o "${NATIVE_DIR}/lib/libjoltc.a" "${JOLTC_A}" "${JOLT_A}"
+          test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
+          # 2. Build static LuaJIT 2.1 for target macOS arch
           git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
           make -C "${RUNNER_TEMP}/luajit/src" -j4 \
             HOST_CC="clang" \
@@ -226,9 +301,10 @@ jobs:
             DYNAMIC_CC="clang -arch ${OSX_ARCH}" \
             TARGET_LD="clang -arch ${OSX_ARCH}" \
             TARGET_AR="ar rcus" \
-            MACOSX_DEPLOYMENT_TARGET=13.0 \
+            MACOSX_DEPLOYMENT_TARGET=15.0 \
             BUILDMODE=static amalg
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
+          test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
 
           export CGO_CFLAGS="-arch ${OSX_ARCH}"
           export CGO_CXXFLAGS="-arch ${OSX_ARCH}"
