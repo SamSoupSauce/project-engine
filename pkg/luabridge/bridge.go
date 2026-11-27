@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
@@ -28,6 +29,8 @@ type LuaBridge struct {
 	hookListeners     map[*engine.GameObject]map[string][]*HookListener
 	scriptEditor      *ScriptEditorService
 	prefabService     *PrefabService
+	shell             *ShellRegistry
+	activeExecCtx     *ExecutionContext
 	loadingScriptPath string
 	scene             *engine.BaseScene
 	console           *Console
@@ -52,6 +55,7 @@ func NewLuaBridge() *LuaBridge {
 		customComponents: make(map[string]*LuaComponentDef),
 		componentClasses: make(map[string]*ComponentClass),
 		hookListeners:    make(map[*engine.GameObject]map[string][]*HookListener),
+		shell:            NewShellRegistry(),
 		outputLogs:       make([]string, 0, 128),
 	}
 
@@ -61,6 +65,7 @@ func NewLuaBridge() *LuaBridge {
 	bridge.registerScriptEditorAPIs()
 	bridge.registerPrefabAPIs()
 	bridge.registerSearchAndComponentCommands()
+	bridge.registerShellAPIs()
 	return bridge
 }
 
@@ -158,9 +163,23 @@ func (b *LuaBridge) Close() {
 
 // RegisterCommand exposes a command name with custom argument handling.
 func (b *LuaBridge) RegisterCommand(name string, handler CommandHandler) {
+	key := strings.ToLower(strings.TrimSpace(name))
 	b.dataMu.Lock()
-	defer b.dataMu.Unlock()
-	b.commands[strings.ToLower(strings.TrimSpace(name))] = handler
+	b.commands[key] = handler
+	b.dataMu.Unlock()
+	if b.shell != nil && key != "" {
+		b.shell.RegisterNative(ShellCommandDef{
+			Name:   key,
+			Source: "native",
+			GoHandler: func(ctx ExecutionContext) (string, error) {
+				var args []string
+				if len(ctx.Args) > 1 {
+					args = ctx.Args[1:]
+				}
+				return handler(args)
+			},
+		})
+	}
 }
 
 // AddInputHook registers an interceptor for raw input processing.
@@ -191,13 +210,33 @@ func (b *LuaBridge) Execute(input string) (string, error) {
 }
 
 func (b *LuaBridge) executeWithStreamFlag(input string) (string, bool, error) {
+	ctx := ExecutionContext{
+		Sender:    "user",
+		Timestamp: time.Now(),
+		Raw:       strings.TrimSpace(input),
+		Args:      ParseShellArgs(strings.TrimSpace(input)),
+	}
+	return b.executeWithStreamFlagContext(ctx, input)
+}
+
+func (b *LuaBridge) executeWithStreamFlagContext(ctx ExecutionContext, input string) (string, bool, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return "", false, nil
 	}
+	if len(ctx.Args) == 0 {
+		ctx.Args = ParseShellArgs(trimmed)
+	}
+	if ctx.Raw == "" {
+		ctx.Raw = trimmed
+	}
 
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
+
+	prevExecCtx := b.activeExecCtx
+	b.activeExecCtx = &ctx
+	defer func() { b.activeExecCtx = prevExecCtx }()
 
 	var capture []string
 	prevCapture := b.execCapture
@@ -222,20 +261,31 @@ func (b *LuaBridge) executeWithStreamFlag(input string) (string, bool, error) {
 		}
 	}
 
-	// 2. Check registered CLI commands
-	fields := strings.Fields(trimmed)
-	cmdName := strings.ToLower(fields[0])
-	b.dataMu.RLock()
-	handler, exists := b.commands[cmdName]
-	b.dataMu.RUnlock()
-
-	if exists {
-		args := fields[1:]
-		out, err := handler(args)
-		if out != "" {
-			b.outputLogs = append(b.outputLogs, out)
+	// 2. Check registered shell commands (avoid hijacking Lua assignments like `edit = 1`)
+	isAssignment := len(ctx.Args) >= 2 && (ctx.Args[1] == "=" || strings.HasPrefix(ctx.Args[1], "="))
+	if len(ctx.Args) > 0 && !isAssignment {
+		cmdName := strings.ToLower(ctx.Args[0])
+		if b.shell != nil {
+			if def, ok := b.shell.Get(cmdName); ok {
+				out, err := b.invokeShellCommandLocked(def, ctx)
+				if out != "" {
+					b.outputLogs = append(b.outputLogs, out)
+				}
+				return out, len(capture) > 0, err
+			}
 		}
-		return out, len(capture) > 0, err
+
+		b.dataMu.RLock()
+		handler, exists := b.commands[cmdName]
+		b.dataMu.RUnlock()
+		if exists {
+			args := ctx.Args[1:]
+			out, err := handler(args)
+			if out != "" {
+				b.outputLogs = append(b.outputLogs, out)
+			}
+			return out, len(capture) > 0, err
+		}
 	}
 
 	// 3. Fallback: Evaluate as Lua expression first (REPL style `return <expr>`),
@@ -332,6 +382,23 @@ func (b *LuaBridge) FormatHelp(topic string) string {
 	if len(cmds) > 0 {
 		lines = append(lines, "Console Commands: "+strings.Join(cmds, ", "))
 	}
+	if b.shell != nil {
+		shellCmds := b.shell.List()
+		if len(shellCmds) > 0 {
+			lines = append(lines, "Shell Commands (use `help <cmd>` for details):")
+			for _, sc := range shellCmds {
+				desc := sc.Description
+				if desc == "" && sc.Usage != "" {
+					desc = sc.Usage
+				}
+				if desc != "" {
+					lines = append(lines, fmt.Sprintf("  %-18s %s", sc.Name, desc))
+				} else {
+					lines = append(lines, fmt.Sprintf("  %s", sc.Name))
+				}
+			}
+		}
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -401,14 +468,29 @@ func (b *LuaBridge) registerConsoleCommands() {
 				} else {
 					txt = b.FormatHelp("pick")
 				}
-			} else if compHelp, ok := b.formatNamedTypeHelp(argStr); ok {
-				txt = compHelp
-			} else if obj := b.findSceneOrRegisteredObject(argStr); obj != nil {
-				txt = FormatObjectHelp(obj)
-			} else if topicHelp, ok := b.formatHelpTopicOnly(argStr); ok {
-				txt = topicHelp
-			} else {
-				return "", fmt.Errorf("no class name or variable exists named %q", argStr)
+			} else if b.shell != nil {
+				if def, ok := b.shell.Get(argStr); ok && (def.Description != "" || def.Usage != "" || def.IsLua) {
+					txt = formatShellCommandHelp(def)
+					b.EmitConsole(txt, LineInfo)
+					return txt, nil
+				}
+			}
+			if txt == "" {
+				if compHelp, ok := b.formatNamedTypeHelp(argStr); ok {
+					txt = compHelp
+				} else if obj := b.findSceneOrRegisteredObject(argStr); obj != nil {
+					txt = FormatObjectHelp(obj)
+				} else if topicHelp, ok := b.formatHelpTopicOnly(argStr); ok {
+					txt = topicHelp
+				} else if b.shell != nil {
+					if def, ok := b.shell.Get(argStr); ok {
+						txt = formatShellCommandHelp(def)
+					} else {
+						return "", fmt.Errorf("no class name or variable exists named %q", argStr)
+					}
+				} else {
+					return "", fmt.Errorf("no class name or variable exists named %q", argStr)
+				}
 			}
 		}
 		b.EmitConsole(txt, LineInfo)

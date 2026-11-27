@@ -101,6 +101,7 @@ type agentResponse struct {
 }
 
 type agentCommand struct {
+	sender string
 	method string
 	params json.RawMessage
 	reply  chan agentResponse
@@ -118,6 +119,7 @@ type wsClient struct {
 	conn   *websocket.Conn
 	send   chan []byte
 	server *AgentServer
+	sender string
 }
 
 // AgentServer provides concurrent HTTP JSON-RPC (/rpc) and WebSocket (/ws) access
@@ -357,8 +359,9 @@ func (s *AgentServer) FlushFrameCaptures(width, height int) {
 	}
 }
 
-func (s *AgentServer) enqueueAndWait(ctx context.Context, method string, params json.RawMessage) (agentResponse, error) {
+func (s *AgentServer) enqueueAndWait(ctx context.Context, sender, method string, params json.RawMessage) (agentResponse, error) {
 	cmd := agentCommand{
+		sender: sender,
 		method: method,
 		params: params,
 		reply:  make(chan agentResponse, 1),
@@ -457,7 +460,7 @@ func (s *AgentServer) executeOnMainThread(cmd agentCommand) {
 		return
 	}
 
-	data, rpcErr := s.dispatchMethod(cmd.method, cmd.params)
+	data, rpcErr := s.dispatchMethod(cmd.sender, cmd.method, cmd.params)
 	logsCopy := make([]string, len(captured))
 	copy(logsCopy, captured)
 
@@ -474,7 +477,7 @@ func (s *AgentServer) executeOnMainThread(cmd agentCommand) {
 	}
 }
 
-func (s *AgentServer) dispatchMethod(method string, params json.RawMessage) (any, *rpcError) {
+func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessage) (any, *rpcError) {
 	switch method {
 	case "engine.ping":
 		sceneName := ""
@@ -502,23 +505,18 @@ func (s *AgentServer) dispatchMethod(method string, params json.RawMessage) (any
 		if err != nil {
 			return nil, &rpcError{Code: -32602, Message: err.Error()}
 		}
-		var out string
-		var execErr error
-		if s.Console != nil {
-			s.Console.Print("> "+cmdText, LineInput)
-			var streamed bool
-			out, streamed, execErr = s.Bridge.executeWithStreamFlag(cmdText)
-			if execErr != nil {
-				s.Console.Print("Error: "+execErr.Error(), LineError)
-			} else if out != "" && !streamed {
-				s.Console.Print(out, LineOutput)
-			}
-		} else if s.Bridge != nil {
-			out, _, execErr = s.Bridge.executeWithStreamFlag(cmdText)
-		} else {
+		if s.Bridge == nil {
 			return nil, &rpcError{Code: -32000, Message: "LuaBridge not initialized"}
 		}
-
+		if strings.TrimSpace(sender) == "" {
+			sender = "agent:rpc"
+		}
+		execCtx := ExecutionContext{
+			Sender:    sender,
+			Timestamp: time.Now(),
+			Raw:       cmdText,
+		}
+		out, execErr := s.Bridge.ExecuteWithContext(execCtx, cmdText)
 		if execErr != nil {
 			return nil, &rpcError{
 				Code:    -32000,
@@ -744,7 +742,8 @@ func (s *AgentServer) handleHTTPJRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.enqueueAndWait(r.Context(), req.Method, req.Params)
+	sender := resolveRPCClientSender(r, req.Params)
+	resp, err := s.enqueueAndWait(r.Context(), sender, req.Method, req.Params)
 	if err != nil {
 		writeJSONRPCError(w, req.ID, -32000, err.Error(), nil)
 		return
@@ -800,6 +799,7 @@ func (s *AgentServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		conn:   conn,
 		send:   make(chan []byte, 256),
 		server: s,
+		sender: resolveWSClientSender(r),
 	}
 
 	s.clientsMu.Lock()
@@ -857,7 +857,7 @@ func (c *wsClient) readPump(reqCtx context.Context) {
 			continue
 		}
 
-		resp, err := c.server.enqueueAndWait(reqCtx, method, params)
+		resp, err := c.server.enqueueAndWait(reqCtx, c.sender, method, params)
 		if err != nil {
 			c.enqueueOutbound(wsOutboundFrame{
 				ID:    frame.ID,
@@ -944,7 +944,7 @@ func (c *wsClient) enqueueOutbound(v any) {
 func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 	op := strings.ToLower(strings.TrimSpace(frame.Op))
 	switch op {
-	case "exec", "console_exec":
+	case "exec", "shell", "console_exec":
 		if strings.TrimSpace(frame.Cmd) != "" {
 			b, _ := json.Marshal(map[string]string{"cmd": frame.Cmd})
 			return "engine.console_exec", b, nil
@@ -963,6 +963,53 @@ func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 		}
 		return "", nil, fmt.Errorf("unsupported ws op %q", frame.Op)
 	}
+}
+
+func resolveRPCClientSender(r *http.Request, params json.RawMessage) string {
+	if r != nil {
+		if cid := strings.TrimSpace(r.Header.Get("X-Client-ID")); cid != "" {
+			return normalizeAgentSender(cid)
+		}
+	}
+	if len(params) > 0 && string(params) != "null" {
+		var p struct {
+			ClientID string `json:"client_id"`
+		}
+		if err := json.Unmarshal(params, &p); err == nil && strings.TrimSpace(p.ClientID) != "" {
+			return normalizeAgentSender(p.ClientID)
+		}
+	}
+	return "agent:rpc"
+}
+
+func resolveWSClientSender(r *http.Request) string {
+	if r != nil {
+		if cid := strings.TrimSpace(r.URL.Query().Get("client_id")); cid != "" {
+			return normalizeAgentSender(cid)
+		}
+		if cid := strings.TrimSpace(r.Header.Get("X-Client-ID")); cid != "" {
+			return normalizeAgentSender(cid)
+		}
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err == nil && host != "" {
+			return "agent:ws:" + host
+		}
+		if r.RemoteAddr != "" {
+			return "agent:ws:" + r.RemoteAddr
+		}
+	}
+	return "agent:ws"
+}
+
+func normalizeAgentSender(clientID string) string {
+	trimmed := strings.TrimSpace(clientID)
+	if trimmed == "" {
+		return "agent:rpc"
+	}
+	if strings.HasPrefix(trimmed, "agent:") {
+		return trimmed
+	}
+	return "agent:" + trimmed
 }
 
 func (s *AgentServer) onConsoleLog(line string) {

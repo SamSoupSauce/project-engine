@@ -131,15 +131,14 @@ func (c *Console) SubmitInput() string {
 	c.CursorPos = 0
 	c.mu.Unlock()
 
-	c.Print("> "+raw, LineInput)
-
-	out, streamed, err := c.Bridge.executeWithStreamFlag(trimmed)
-	if err != nil {
-		c.Print("Error: "+err.Error(), LineError)
-		return "Error: " + err.Error()
+	ctx := ExecutionContext{
+		Sender:    "user",
+		Timestamp: time.Now(),
+		Raw:       raw,
 	}
-	if out != "" && !streamed {
-		c.Print(out, LineOutput)
+	out, err := c.Bridge.ExecuteWithContext(ctx, trimmed)
+	if err != nil {
+		return "Error: " + err.Error()
 	}
 	return out
 }
