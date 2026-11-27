@@ -4,7 +4,7 @@ package luabridge
 #cgo CFLAGS: -I${SRCDIR}/thirdparty/luajit/include
 #cgo windows,amd64 LDFLAGS: ${SRCDIR}/thirdparty/luajit/lib/windows/amd64/libluajit.a -lmsvcrt -lm
 #cgo windows,arm64 LDFLAGS: -lluajit-5.1 -lm
-#cgo linux LDFLAGS: -lluajit-5.1 -lm -ldl
+#cgo linux LDFLAGS: -lluajit-5.1 -lm -ldl -Wl,--export-dynamic
 #cgo darwin LDFLAGS: -lluajit-5.1 -lm
 
 #include <stdlib.h>

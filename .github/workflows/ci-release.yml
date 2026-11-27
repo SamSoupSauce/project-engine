@@ -59,6 +59,7 @@ jobs:
       CGO_ENABLED: "1"
       CGO_LDFLAGS_ALLOW: ".*"
       JOLTC_SHA: "b6057a04ce0bf01997c0cd8f6b34ca9a87f405d2"
+      LUAJIT_SHA: "96f7b297326e9fd454b7186c6858b2773f94a0dc"
 
     steps:
       - name: Checkout repository
@@ -80,17 +81,28 @@ jobs:
           fi
 
       # -----------------------------------------------------------------------
-      # Windows x64: uses vendored libjoltc.a & libluajit.a
+      # Windows x64: match libluajit.a to runner MinGW CRT, run vet, tests & package
       # -----------------------------------------------------------------------
+      - name: Build runner-matched LuaJIT (Windows x64)
+        if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/c/msys64/usr/bin:${PATH}"
+          gcc --version
+          git init "${RUNNER_TEMP}/luajit-win64"
+          git -C "${RUNNER_TEMP}/luajit-win64" remote add origin https://github.com/LuaJIT/LuaJIT.git
+          git -C "${RUNNER_TEMP}/luajit-win64" fetch --depth 1 origin "${LUAJIT_SHA}"
+          git -C "${RUNNER_TEMP}/luajit-win64" checkout FETCH_HEAD
+          make -C "${RUNNER_TEMP}/luajit-win64/src" -j4 TARGET_SYS=Windows BUILDMODE=static amalg
+          cp "${RUNNER_TEMP}/luajit-win64/src/libluajit.a" "pkg/luabridge/thirdparty/luajit/lib/windows/amd64/libluajit.a"
+          test -s "pkg/luabridge/thirdparty/luajit/lib/windows/amd64/libluajit.a"
+
       - name: Run vet, tests & package (Windows x64)
         if: matrix.goos == 'windows' && matrix.goarch == 'amd64'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          if (Test-Path "C:\msys64\mingw64\bin") {
-            $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
-          }
-          gcc --version
           $ver = "${{ steps.ver.outputs.version }}"
           go vet ./engine ./pkg/luabridge ./pkg/tileimporter ./cmd/demo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -153,13 +165,16 @@ jobs:
           aarch64-w64-mingw32-ranlib "${NATIVE_DIR}/lib/libjoltc.a"
           test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          # 2. Build static LuaJIT 2.1 for Windows ARM64
-          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          # 2. Build static LuaJIT 2.1 (pinned to 2.1.1795119671) for Windows ARM64
+          git init "${RUNNER_TEMP}/luajit"
+          git -C "${RUNNER_TEMP}/luajit" remote add origin https://github.com/LuaJIT/LuaJIT.git
+          git -C "${RUNNER_TEMP}/luajit" fetch --depth 1 origin "${LUAJIT_SHA}"
+          git -C "${RUNNER_TEMP}/luajit" checkout FETCH_HEAD
           make -C "${RUNNER_TEMP}/luajit/src" -j4 \
             HOST_CC="x86_64-w64-mingw32-gcc" \
             CROSS=aarch64-w64-mingw32- \
             TARGET_SYS=Windows \
-            BUILDMODE=static
+            BUILDMODE=static amalg
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
           test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
 
@@ -244,8 +259,11 @@ jobs:
           ranlib "${NATIVE_DIR}/lib/libjoltc.a"
           test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          # 2. Build static PIE-compatible LuaJIT 2.1 for self-contained Linux binaries
-          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          # 2. Build static PIE-compatible LuaJIT 2.1 (pinned to 2.1.1795119671)
+          git init "${RUNNER_TEMP}/luajit"
+          git -C "${RUNNER_TEMP}/luajit" remote add origin https://github.com/LuaJIT/LuaJIT.git
+          git -C "${RUNNER_TEMP}/luajit" fetch --depth 1 origin "${LUAJIT_SHA}"
+          git -C "${RUNNER_TEMP}/luajit" checkout FETCH_HEAD
           make -C "${RUNNER_TEMP}/luajit/src" -j4 CC="gcc -fPIC" BUILDMODE=static amalg
           cp "${RUNNER_TEMP}/luajit/src/libluajit.a" "${NATIVE_DIR}/lib/libluajit-5.1.a"
           test -s "${NATIVE_DIR}/lib/libluajit-5.1.a"
@@ -325,8 +343,11 @@ jobs:
           libtool -static -o "${NATIVE_DIR}/lib/libjoltc.a" "${JOLTC_A}" "${JOLT_A}"
           test -s "${NATIVE_DIR}/lib/libjoltc.a"
 
-          # 2. Build static LuaJIT 2.1 for target macOS arch
-          git clone --depth 1 -b v2.1 https://github.com/LuaJIT/LuaJIT.git "${RUNNER_TEMP}/luajit"
+          # 2. Build static LuaJIT 2.1 (pinned to 2.1.1795119671) for target macOS arch
+          git init "${RUNNER_TEMP}/luajit"
+          git -C "${RUNNER_TEMP}/luajit" remote add origin https://github.com/LuaJIT/LuaJIT.git
+          git -C "${RUNNER_TEMP}/luajit" fetch --depth 1 origin "${LUAJIT_SHA}"
+          git -C "${RUNNER_TEMP}/luajit" checkout FETCH_HEAD
           make -C "${RUNNER_TEMP}/luajit/src" -j4 \
             HOST_CC="clang" \
             STATIC_CC="clang -arch ${OSX_ARCH}" \
