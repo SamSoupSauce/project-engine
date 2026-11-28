@@ -24,6 +24,7 @@ type ImGuiOverlay struct {
 	ScriptEditor   *ScriptEditorWindow
 	PrefabEditor   *PrefabEditorWindow
 	TileMapBrowser *TileMapBrowserWindow
+	PropBrowser    *PropBrowserWindow
 	Tutorial       *TutorialWindow
 	ShowDemo       bool
 	ShowMetrics    bool
@@ -180,6 +181,15 @@ func (o *ImGuiOverlay) SetTileMapBrowser(backend TileMapBrowserBackend) {
 	o.TileMapBrowser = NewTileMapBrowserWindow(backend)
 }
 
+// SetPropBrowser attaches a PropBrowserWindow backed by backend to the overlay.
+func (o *ImGuiOverlay) SetPropBrowser(backend PropBrowserBackend) {
+	if backend == nil {
+		o.PropBrowser = nil
+		return
+	}
+	o.PropBrowser = NewPropBrowserWindow(backend)
+}
+
 // SetTunnelURL safely sets the active Cloudflare Quick Tunnel URL displayed in the debug overlay.
 func (o *ImGuiOverlay) SetTunnelURL(url string) {
 	if o == nil {
@@ -277,6 +287,10 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 
 	if o.TileMapBrowser != nil {
 		o.TileMapBrowser.Draw()
+	}
+
+	if o.PropBrowser != nil {
+		o.PropBrowser.Draw()
 	}
 
 	if o.Tutorial != nil {

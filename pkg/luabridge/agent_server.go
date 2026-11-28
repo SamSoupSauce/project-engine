@@ -770,6 +770,67 @@ func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessa
 			return nil, &rpcError{Code: -32602, Message: "unknown query_tilemap topic: " + p.Topic}
 		}
 
+	case "engine.query_props":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			Query string `json:"query"`
+		}
+		if len(params) > 0 && string(params) != "null" {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+			}
+		}
+		list, err := s.Bridge.PropEditor().ListProps(p.Query)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{"props": list, "count": len(list)}, nil
+
+	case "engine.resolve_prop":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			ID         string            `json:"id"`
+			Selections map[string]string `json:"selections"`
+		}
+		if len(params) == 0 || string(params) == "null" {
+			return nil, &rpcError{Code: -32602, Message: "resolve_prop requires params.id"}
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		opts := ResolutionOptions{Selections: p.Selections}
+		if opts.Selections == nil {
+			opts.Selections = map[string]string{}
+		}
+		res, err := s.Bridge.PropEditor().ResolveProp(p.ID, opts)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return res, nil
+
+	case "engine.query_prop":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			ID string `json:"id"`
+		}
+		if len(params) == 0 || string(params) == "null" {
+			return nil, &rpcError{Code: -32602, Message: "query_prop requires params.id"}
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		errs, err := s.Bridge.PropEditor().ValidateProp(p.ID)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{"id": p.ID, "validation_errors": errs, "valid": len(errs) == 0}, nil
+
 	default:
 		return nil, &rpcError{Code: -32601, Message: fmt.Sprintf("method not found: %s", method)}
 	}
@@ -1081,7 +1142,7 @@ func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 			return "", nil, fmt.Errorf("op 'rpc' requires method")
 		}
 		return frame.Method, frame.Params, nil
-	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame", "query_tilemaps", "load_tilemap", "query_tilemap":
+	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame", "query_tilemaps", "load_tilemap", "query_tilemap", "query_props", "resolve_prop", "query_prop":
 		return "engine." + op, frame.Params, nil
 	default:
 		if strings.HasPrefix(op, "engine.") {
