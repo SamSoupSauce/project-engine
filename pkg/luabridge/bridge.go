@@ -39,6 +39,7 @@ type LuaBridge struct {
 	scriptEditor      *ScriptEditorService
 	prefabService     *PrefabService
 	tileMapService    *TileMapService
+	propService       *PropService
 	shell             *ShellRegistry
 	workspacePaths    *engine.ResolvedWorkspacePaths
 	activeExecCtx     *ExecutionContext
@@ -81,6 +82,8 @@ func NewLuaBridge() *LuaBridge {
 	bridge.registerDocsAPIs()
 	bridge.tileMapService = NewTileMapService(bridge)
 	bridge.tileMapService.registerLuaAPIs()
+	bridge.propService = NewPropService(bridge)
+	bridge.propService.registerPropLuaAPIs()
 	return bridge
 }
 
@@ -154,6 +157,9 @@ func (b *LuaBridge) SetWorkspacePaths(paths engine.ResolvedWorkspacePaths) {
 	}
 	if b.tileMapService != nil {
 		b.tileMapService.SetMapsDir(filepath.Join(paths.AssetsDir, "maps"))
+	}
+	if b.propService != nil {
+		b.propService.SetPropsDir(filepath.Join(paths.ScriptsDir, "props"))
 	}
 }
 

@@ -156,6 +156,18 @@ var builtinSubsystemDocs = map[string]DocsSubsystemItem{
 			"Lua helper workspace_paths() returns { root, assets, scripts, prefabs, config }.",
 		},
 	},
+	"prop": {
+		Topic:       "prop",
+		Description: "Compositional Prop manifests: node/pool trees, deterministic resolution, and the ImGui Prop Manager.",
+		Usage:       "props [query] | prop_resolve <id> | engine.resolve_prop | engine.query_props",
+		Details: []string{
+			"Data model: Prop -> Node (type_pool, children) -> Pool (options, mode) -> PoolOption (payload with model/material/sub-pools).",
+			"Lua API: props.list([query]), resolve(id, selections), validate(id).",
+			"Shell: props [query], prop_resolve <id>.",
+			"Bridge RPC: engine.query_props, engine.resolve_prop ({id, selections}), engine.query_prop ({id}).",
+			"Manifests are JSON files (*.prop.json) under scripts/props; seed makes resolution reproducible.",
+		},
+	},
 	"tilemap": {
 		Topic:       "tilemap",
 		Description: "TMX tile map discovery, runtime loading, layer/tile introspection, and the ImGui Tile Map Browser.",

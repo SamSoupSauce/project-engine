@@ -34,6 +34,31 @@ type demoServerOptions struct {
 	TileMap      string
 }
 
+type propBrowserAdapter struct {
+	svc *luabridge.PropService
+}
+
+func (a *propBrowserAdapter) IsPropBrowserOpen() bool {
+	return a.svc != nil && a.svc.IsPropBrowserOpen()
+}
+func (a *propBrowserAdapter) SetPropBrowserOpen(open bool) {
+	if a.svc != nil {
+		a.svc.SetPropBrowserOpen(open)
+	}
+}
+func (a *propBrowserAdapter) ListProps(q string) ([]engine.PropBrowserSummary, error) {
+	if a.svc == nil {
+		return nil, nil
+	}
+	return a.svc.ListPropsBrowser(q)
+}
+func (a *propBrowserAdapter) ResolveProp(id string, seed int64) (engine.PropBrowserResolution, error) {
+	if a.svc == nil {
+		return engine.PropBrowserResolution{}, nil
+	}
+	return a.svc.ResolvePropBrowser(id, seed)
+}
+
 func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	var opts demoServerOptions
@@ -199,6 +224,7 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 	overlay.SetScriptEditor(bridge.ScriptEditor())
 	overlay.SetPrefabEditor(bridge.PrefabEditor())
 	overlay.SetTileMapBrowser(bridge.TileMapEditor())
+	overlay.SetPropBrowser(&propBrowserAdapter{svc: bridge.PropEditor()})
 	overlay.Tutorial = engine.NewTutorialWindow(paths.TutorialStateFile)
 	if bridge.TileMapEditor() != nil && strings.TrimSpace(paths.TileMapPath) != "" {
 		if _, err := bridge.TileMapEditor().LoadMap(paths.TileMapPath); err != nil {
