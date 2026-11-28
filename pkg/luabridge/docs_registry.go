@@ -156,6 +156,18 @@ var builtinSubsystemDocs = map[string]DocsSubsystemItem{
 			"Lua helper workspace_paths() returns { root, assets, scripts, prefabs, config }.",
 		},
 	},
+	"tilemap": {
+		Topic:       "tilemap",
+		Description: "TMX tile map discovery, runtime loading, layer/tile introspection, and the ImGui Tile Map Browser.",
+		Usage:       "tilemaps [query] | tilemap.load <path> | tilemap.reload | tilemap.info | tilemap.layers | tilemap.tiles [layer] [query]",
+		Details: []string{
+			"Lua API: tilemap.list([query]), load(path), reload(), current(), info(), layers(), tiles([layer],[query]), tile_at(col,row,[layer]), world_to_grid(x,z), grid_to_world(col,row), colliders(), registry().",
+			"Bridge RPC: engine.query_tilemaps, engine.load_tilemap ({path}), engine.query_tilemap ({topic: info|layers|tiles|tile|colliders|registry}).",
+			"Bridge WS ops: query_tilemaps, load_tilemap, query_tilemap (same params as RPC).",
+			"Map path is configurable via engine.json 'tilemap_path' or the --tilemap CLI flag; defaults to assets/maps/kitchen_sink.tmx.",
+			"The ImGui Tile Map Browser is toggled from the [~] Developer Console; select a map to load/swap it at runtime.",
+		},
+	},
 	"tutorial": {
 		Topic:       "tutorial",
 		Description: "First-run interactive Dear ImGui quick-start tutorial with persisted 'Do not show again' preference.",

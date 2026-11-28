@@ -24,6 +24,7 @@ type WorkspaceConfig struct {
 	PrefabsDir  string `json:"prefabs_dir,omitempty"`
 	ConfigDir   string `json:"config_dir,omitempty"`
 	WindowTitle string `json:"window_title,omitempty"`
+	TileMapPath string `json:"tilemap_path,omitempty"`
 }
 
 // DefaultWorkspaceConfig returns default relative subdirectory names for a Project Engine workspace.
@@ -35,6 +36,7 @@ func DefaultWorkspaceConfig() WorkspaceConfig {
 		PrefabsDir:  "prefabs",
 		ConfigDir:   "config",
 		WindowTitle: "Project Engine - Kitchen Sink Demo",
+		TileMapPath: "assets/maps/kitchen_sink.tmx",
 	}
 }
 
@@ -49,6 +51,7 @@ type ResolvedWorkspacePaths struct {
 	ConfigDir         string
 	TutorialStateFile string
 	WindowTitle       string
+	TileMapPath       string
 }
 
 // WorkspaceVerificationError reports missing or invalid required directories during startup verification.
@@ -141,6 +144,7 @@ func LoadWorkspaceConfig(rootFlag string, rootExplicit bool, configPath string) 
 		PrefabsDir:   resolveSubdir(cfg.RootDir, cfg.PrefabsDir, "prefabs"),
 		ConfigDir:    resolveSubdir(cfg.RootDir, cfg.ConfigDir, "config"),
 		WindowTitle:  cfg.WindowTitle,
+		TileMapPath:  resolveSubdir(cfg.RootDir, cfg.TileMapPath, "assets/maps/kitchen_sink.tmx"),
 	}
 	paths.TutorialStateFile = filepath.Join(paths.ConfigDir, DefaultTutorialStateFileName)
 	return cfg, paths, nil
@@ -283,6 +287,9 @@ func mergeWorkspaceConfig(dst *WorkspaceConfig, src WorkspaceConfig) {
 	}
 	if s := strings.TrimSpace(src.WindowTitle); s != "" {
 		dst.WindowTitle = s
+	}
+	if s := strings.TrimSpace(src.TileMapPath); s != "" {
+		dst.TileMapPath = s
 	}
 }
 

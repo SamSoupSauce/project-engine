@@ -58,7 +58,7 @@ Whenever this skill is activated or the user issues a Project Engine task, you *
 
 1. **Capability Audit (`engine.ping` + `engine.query_docs`):**
    - Immediately upon connecting, call `engine.ping` and then **`engine.query_docs`** (`params: {}` or `docs` in shell) to retrieve the live index of:
-     - Engine subsystems (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `prefabs`, `scripts`, `console`, `workspace`, `tutorial`)
+     - Engine subsystems (`jolt`, `shell.register`, `prefab.format`, `hooks`, `components`, `prefabs`, `scripts`, `console`, `workspace`, `tutorial`, `tilemap`)
      - Native Go shell commands (`help`, `docs`, `tutorial`, `scripts.list`, `scripts.run`, `scripts.reload`, `scripts.unload`, `comp`, `prefabs`, `edit`, etc.)
      - Dynamically registered Lua shell commands (`shell.register(...)`)
      - Registered ECS component schemas (built-in and custom Lua `Component(...)` types such as `Rotator`)
@@ -171,6 +171,25 @@ Every command sent to `engine.console_exec` or WebSocket `op: "shell"` runs thro
 ```
 
 ---
+
+## 4b. Tile Map APIs (Ticket 0025)
+Tile maps are discovered, loaded, and introspected at runtime. The ImGui Tile Map Browser is toggled from the `[~]` Developer Console.
+
+```bash
+# Discover maps
+curl -sS -X POST http://127.0.0.1:4242/rpc -H "Content-Type: application/json" \
+  -H "X-Engine-Token;" -H "X-Client-ID: agy" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"engine.query_tilemaps","params":{"query":""}}'
+
+# Load / swap a map at runtime
+  -d '{"jsonrpc":"2.0","id":"2","method":"engine.load_tilemap","params":{"path":"assets/maps/kitchen_sink.tmx"}}'
+
+# Introspect: topic = info | layers | tiles | tile | colliders | registry
+  -d '{"jsonrpc":"2.0","id":"3","method":"engine.query_tilemap","params":{"topic":"tiles","query":"stairs"}}'
+```
+Lua API: `tilemap.list/load/reload/current/info/layers/tiles/tile_at/world_to_grid/grid_to_world/colliders/registry`.
+Shell: `tilemaps`, `tilemap.load`, `tilemap.reload`, `tilemap.info`, `tilemap.layers`, `tilemap.tiles`.
+Config: `engine.json` `tilemap_path`, or CLI `--tilemap <path>`; default `assets/maps/kitchen_sink.tmx`.
 
 ## 5. Reference Examples
 See [examples/](examples/) for ready-to-run shell scripts (`ping.sh`, `query_docs.sh`, `query_prefabs_and_components.sh`, `spawn_prefab.sh`, `console_exec.sh`, `run_script_and_refresh_docs.sh`, `capture_frame.sh`, `ws_stream.sh`).

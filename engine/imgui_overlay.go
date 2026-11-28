@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AllenDang/cimgui-go/impl/opengl3"
 	"github.com/AllenDang/cimgui-go/imgui"
+	"github.com/AllenDang/cimgui-go/impl/opengl3"
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
@@ -20,12 +20,13 @@ type ImGuiOverlay struct {
 	headless    bool
 	lastTime    float64
 
-	Console      *DebugConsoleWindow
-	ScriptEditor *ScriptEditorWindow
-	PrefabEditor *PrefabEditorWindow
-	Tutorial     *TutorialWindow
-	ShowDemo     bool
-	ShowMetrics  bool
+	Console        *DebugConsoleWindow
+	ScriptEditor   *ScriptEditorWindow
+	PrefabEditor   *PrefabEditorWindow
+	TileMapBrowser *TileMapBrowserWindow
+	Tutorial       *TutorialWindow
+	ShowDemo       bool
+	ShowMetrics    bool
 
 	MetricsFPS  float32
 	SceneName   string
@@ -170,6 +171,15 @@ func (o *ImGuiOverlay) SetPrefabEditor(backend PrefabEditorBackend) {
 	o.PrefabEditor = NewPrefabEditorWindow(backend)
 }
 
+// SetTileMapBrowser attaches a TileMapBrowserWindow backed by backend to the overlay.
+func (o *ImGuiOverlay) SetTileMapBrowser(backend TileMapBrowserBackend) {
+	if backend == nil {
+		o.TileMapBrowser = nil
+		return
+	}
+	o.TileMapBrowser = NewTileMapBrowserWindow(backend)
+}
+
 // SetTunnelURL safely sets the active Cloudflare Quick Tunnel URL displayed in the debug overlay.
 func (o *ImGuiOverlay) SetTunnelURL(url string) {
 	if o == nil {
@@ -263,6 +273,10 @@ func (o *ImGuiOverlay) DrawDebugWindows() {
 
 	if o.PrefabEditor != nil {
 		o.PrefabEditor.Draw()
+	}
+
+	if o.TileMapBrowser != nil {
+		o.TileMapBrowser.Draw()
 	}
 
 	if o.Tutorial != nil {

@@ -672,6 +672,104 @@ func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessa
 			"components": compNames,
 		}, nil
 
+	case "engine.query_tilemaps":
+		if s.Bridge == nil || s.Bridge.TileMapEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "TileMapService not initialized"}
+		}
+		var p struct {
+			Query string `json:"query"`
+		}
+		if len(params) > 0 && string(params) != "null" {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+			}
+		}
+		list, err := s.Bridge.TileMapEditor().ListMaps(p.Query)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{"tilemaps": list, "count": len(list)}, nil
+
+	case "engine.load_tilemap":
+		if s.Bridge == nil || s.Bridge.TileMapEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "TileMapService not initialized"}
+		}
+		var p struct {
+			Path string `json:"path"`
+		}
+		if len(params) == 0 || string(params) == "null" {
+			return nil, &rpcError{Code: -32602, Message: "load_tilemap requires params.path"}
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		res, err := s.Bridge.TileMapEditor().LoadMap(p.Path)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return res, nil
+
+	case "engine.query_tilemap":
+		if s.Bridge == nil || s.Bridge.TileMapEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "TileMapService not initialized"}
+		}
+		var p struct {
+			Topic string `json:"topic"`
+			Layer string `json:"layer"`
+			Query string `json:"query"`
+			Col   *int   `json:"col"`
+			Row   *int   `json:"row"`
+		}
+		if len(params) > 0 && string(params) != "null" {
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+			}
+		}
+		svc := s.Bridge.TileMapEditor()
+		switch strings.ToLower(strings.TrimSpace(p.Topic)) {
+		case "", "info":
+			info, err := svc.Info()
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return info, nil
+		case "layers":
+			layers, err := svc.Layers()
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return map[string]any{"layers": layers, "count": len(layers)}, nil
+		case "tiles":
+			tiles, err := svc.Tiles(p.Layer, p.Query)
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return map[string]any{"tiles": tiles, "count": len(tiles)}, nil
+		case "tile":
+			if p.Col == nil || p.Row == nil {
+				return nil, &rpcError{Code: -32602, Message: "tile topic requires col and row"}
+			}
+			tile, err := svc.TileAt(*p.Col, *p.Row, p.Layer)
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return tile, nil
+		case "colliders":
+			bounds, err := svc.Colliders()
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return map[string]any{"colliders": bounds, "count": len(bounds)}, nil
+		case "registry":
+			reg, err := svc.Registry()
+			if err != nil {
+				return nil, &rpcError{Code: -32000, Message: err.Error()}
+			}
+			return reg, nil
+		default:
+			return nil, &rpcError{Code: -32602, Message: "unknown query_tilemap topic: " + p.Topic}
+		}
+
 	default:
 		return nil, &rpcError{Code: -32601, Message: fmt.Sprintf("method not found: %s", method)}
 	}
@@ -983,7 +1081,7 @@ func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 			return "", nil, fmt.Errorf("op 'rpc' requires method")
 		}
 		return frame.Method, frame.Params, nil
-	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame":
+	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame", "query_tilemaps", "load_tilemap", "query_tilemap":
 		return "engine." + op, frame.Params, nil
 	default:
 		if strings.HasPrefix(op, "engine.") {
