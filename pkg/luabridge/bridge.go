@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	lua "github.com/yuin/gopher-lua"
 	"github.com/SamSoupSauce/project-engine/engine"
+	lua "github.com/yuin/gopher-lua"
 )
 
 // ScriptErrorRecord captures a script load or runtime hook error without crashing the engine.
@@ -38,6 +38,7 @@ type LuaBridge struct {
 	hookListeners     map[*engine.GameObject]map[string][]*HookListener
 	scriptEditor      *ScriptEditorService
 	prefabService     *PrefabService
+	tileMapService    *TileMapService
 	shell             *ShellRegistry
 	workspacePaths    *engine.ResolvedWorkspacePaths
 	activeExecCtx     *ExecutionContext
@@ -78,6 +79,8 @@ func NewLuaBridge() *LuaBridge {
 	bridge.registerSearchAndComponentCommands()
 	bridge.registerShellAPIs()
 	bridge.registerDocsAPIs()
+	bridge.tileMapService = NewTileMapService(bridge)
+	bridge.tileMapService.registerLuaAPIs()
 	return bridge
 }
 
@@ -148,6 +151,9 @@ func (b *LuaBridge) SetWorkspacePaths(paths engine.ResolvedWorkspacePaths) {
 	}
 	if b.prefabService != nil && strings.TrimSpace(paths.PrefabsDir) != "" {
 		b.prefabService.SetPrefabsDir(paths.PrefabsDir)
+	}
+	if b.tileMapService != nil {
+		b.tileMapService.SetMapsDir(filepath.Join(paths.AssetsDir, "maps"))
 	}
 }
 

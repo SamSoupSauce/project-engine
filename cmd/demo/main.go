@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,6 +31,7 @@ type demoServerOptions struct {
 	Tunnel       bool
 	Address      string
 	Token        string
+	TileMap      string
 }
 
 func parseDemoServerFlags(args []string) (demoServerOptions, error) {
@@ -44,6 +46,7 @@ func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs.BoolVar(&opts.Tunnel, "tunnel", false, "Auto-locate/download cloudflared and open a quick tunnel to --address (implies --serve)")
 	fs.StringVar(&opts.Address, "address", luabridge.DefaultAgentServerAddress, "Bind address for agent bridge server")
 	fs.StringVar(&opts.Token, "token", "", "Required authentication token when --serve or --tunnel is enabled (may be empty)")
+	fs.StringVar(&opts.TileMap, "tilemap", "", "Override the tile map path (relative to workspace root or absolute)")
 	if err := fs.Parse(args); err != nil {
 		return opts, err
 	}
@@ -159,6 +162,13 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 	bridge := luabridge.NewLuaBridge()
 	defer bridge.Close()
 	bridge.SetWorkspacePaths(paths)
+	if opts.TileMap != "" {
+		paths.TileMapPath = opts.TileMap
+		bridge.SetWorkspacePaths(paths)
+	}
+	if bridge.TileMapEditor() != nil {
+		bridge.TileMapEditor().ReloadScene = scene.RebuildTileMap
+	}
 	if ctxObj != nil {
 		bridge.RegisterGameObject("context", ctxObj)
 	}
@@ -188,7 +198,13 @@ func runDemo(ctx context.Context, opts demoServerOptions) error {
 	overlay.SetConsole(console)
 	overlay.SetScriptEditor(bridge.ScriptEditor())
 	overlay.SetPrefabEditor(bridge.PrefabEditor())
+	overlay.SetTileMapBrowser(bridge.TileMapEditor())
 	overlay.Tutorial = engine.NewTutorialWindow(paths.TutorialStateFile)
+	if bridge.TileMapEditor() != nil && strings.TrimSpace(paths.TileMapPath) != "" {
+		if _, err := bridge.TileMapEditor().LoadMap(paths.TileMapPath); err != nil {
+			fmt.Printf("tile map startup load: %v\n", err)
+		}
+	}
 
 	bridge.Shell().RegisterNative(luabridge.ShellCommandDef{
 		Name:        "tutorial",
