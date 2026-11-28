@@ -831,6 +831,83 @@ func (s *AgentServer) dispatchMethod(sender, method string, params json.RawMessa
 		}
 		return map[string]any{"id": p.ID, "validation_errors": errs, "valid": len(errs) == 0}, nil
 
+	case "engine.get_prop":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct{ ID string `json:"id"` }
+		if len(params) == 0 || string(params) == "null" {
+			return nil, &rpcError{Code: -32602, Message: "get_prop requires params.id"}
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		prop, err := s.Bridge.PropEditor().GetProp(p.ID)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return prop, nil
+
+	case "engine.set_prop_selection":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			ID     string `json:"id"`
+			Path   string `json:"path"`
+			Pool   string `json:"pool"`
+			Option string `json:"option"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		if err := s.Bridge.PropEditor().SetSelection(p.ID, p.Path, p.Pool, p.Option); err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{"id": p.ID, "pinned": true}, nil
+
+	case "engine.clone_prop":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			Source string `json:"source"`
+			ID     string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		path, err := s.Bridge.PropEditor().CloneProp(p.Source, p.ID)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{"id": p.ID, "path": path}, nil
+
+	case "engine.query_prop_tree":
+		if s.Bridge == nil || s.Bridge.PropEditor() == nil {
+			return nil, &rpcError{Code: -32000, Message: "PropService not initialized"}
+		}
+		var p struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, &rpcError{Code: -32602, Message: fmt.Sprintf("invalid params: %v", err)}
+		}
+		prop, err := s.Bridge.PropEditor().GetProp(p.ID)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		node, err := engine.FindNode(prop.Root, p.Path)
+		if err != nil {
+			return nil, &rpcError{Code: -32000, Message: err.Error()}
+		}
+		return map[string]any{
+			"id": node.ID, "children": len(node.Children),
+			"type_pool": node.TypePool.Name,
+			"options":   len(node.TypePool.Options),
+		}, nil
+
 	default:
 		return nil, &rpcError{Code: -32601, Message: fmt.Sprintf("method not found: %s", method)}
 	}
@@ -1142,7 +1219,7 @@ func normalizeWSFrame(frame wsInboundFrame) (string, json.RawMessage, error) {
 			return "", nil, fmt.Errorf("op 'rpc' requires method")
 		}
 		return frame.Method, frame.Params, nil
-	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame", "query_tilemaps", "load_tilemap", "query_tilemap", "query_props", "resolve_prop", "query_prop":
+	case "ping", "query_prefabs", "query_components", "query_docs", "spawn_prefab", "capture_frame", "query_tilemaps", "load_tilemap", "query_tilemap", "query_props", "resolve_prop", "query_prop", "get_prop", "set_prop_selection", "clone_prop", "query_prop_tree":
 		return "engine." + op, frame.Params, nil
 	default:
 		if strings.HasPrefix(op, "engine.") {

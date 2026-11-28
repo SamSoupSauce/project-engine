@@ -19,6 +19,11 @@ func (f *fakePropBackend) ResolveProp(id string, seed int64) (PropBrowserResolut
 	}}, nil
 }
 
+func (f *fakePropBackend) PropTree(id string) ([]PropTreeNode, error) { return nil, nil }
+func (f *fakePropBackend) AddOption(id, path, pool, option, model string) error { return nil }
+func (f *fakePropBackend) RemoveOption(id, path, pool, option string) error { return nil }
+func (f *fakePropBackend) PinSelection(id, path, pool, option string) error { return nil }
+
 func TestPropBrowserWindowOpenClose(t *testing.T) {
 	backend := &fakePropBackend{}
 	w := NewPropBrowserWindow(backend)

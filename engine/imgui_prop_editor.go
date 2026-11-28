@@ -13,6 +13,10 @@ type PropBrowserBackend interface {
 	SetPropBrowserOpen(open bool)
 	ListProps(query string) ([]PropBrowserSummary, error)
 	ResolveProp(id string, seed int64) (PropBrowserResolution, error)
+	PropTree(id string) ([]PropTreeNode, error)
+	AddOption(id, path, pool, option, model string) error
+	RemoveOption(id, path, pool, option string) error
+	PinSelection(id, path, pool, option string) error
 }
 
 // PropBrowserSummary describes a prop manifest for the browser UI.
@@ -36,6 +40,14 @@ type PropBrowserResolution struct {
 	Leaves    []PropBrowserLeaf
 }
 
+// PropTreeNode describes one row of the node/pool tree in the editor.
+type PropTreeNode struct {
+	ID          string
+	PoolName    string
+	OptionCount int
+	Depth       int
+}
+
 // PropBrowserWindow renders the Prop Manager browser, tree, and resolution preview.
 type PropBrowserWindow struct {
 	Backend     PropBrowserBackend
@@ -46,6 +58,9 @@ type PropBrowserWindow struct {
 	SelectedID  string
 	Seed        int32
 	Resolution  *PropBrowserResolution
+	Tree        []PropTreeNode
+	NewOptionID string
+	NewModel    string
 	StatusMsg   string
 	StatusIsErr bool
 	listLoaded  bool
@@ -108,6 +123,69 @@ func (w *PropBrowserWindow) Resolve(id string, seed int64) (PropBrowserResolutio
 		w.StatusIsErr = true
 	}
 	return res, err
+}
+
+// LoadTree fetches the node/pool tree for a prop.
+func (w *PropBrowserWindow) LoadTree(id string) ([]PropTreeNode, error) {
+	if w == nil || w.Backend == nil {
+		return nil, fmt.Errorf("engine: prop browser backend is nil")
+	}
+	nodes, err := w.Backend.PropTree(id)
+	if err != nil {
+		w.StatusMsg = err.Error()
+		w.StatusIsErr = true
+		return nil, err
+	}
+	w.Tree = nodes
+	return nodes, nil
+}
+
+// AddOption adds an option to a pool in the prop tree.
+func (w *PropBrowserWindow) AddOption(id, path, pool, option, model string) error {
+	if w == nil || w.Backend == nil {
+		return fmt.Errorf("engine: prop browser backend is nil")
+	}
+	err := w.Backend.AddOption(id, path, pool, option, model)
+	if err != nil {
+		w.StatusMsg = err.Error()
+		w.StatusIsErr = true
+		return err
+	}
+	w.StatusMsg = fmt.Sprintf("Added option %s", option)
+	w.StatusIsErr = false
+	return nil
+}
+
+// RemoveOption removes an option from a pool in the prop tree.
+func (w *PropBrowserWindow) RemoveOption(id, path, pool, option string) error {
+	if w == nil || w.Backend == nil {
+		return fmt.Errorf("engine: prop browser backend is nil")
+	}
+	err := w.Backend.RemoveOption(id, path, pool, option)
+	if err != nil {
+		w.StatusMsg = err.Error()
+		w.StatusIsErr = true
+		return err
+	}
+	w.StatusMsg = fmt.Sprintf("Removed option %s", option)
+	w.StatusIsErr = false
+	return nil
+}
+
+// PinSelection pins an option choice in the prop tree.
+func (w *PropBrowserWindow) PinSelection(id, path, pool, option string) error {
+	if w == nil || w.Backend == nil {
+		return fmt.Errorf("engine: prop browser backend is nil")
+	}
+	err := w.Backend.PinSelection(id, path, pool, option)
+	if err != nil {
+		w.StatusMsg = err.Error()
+		w.StatusIsErr = true
+		return err
+	}
+	w.StatusMsg = fmt.Sprintf("Pinned %s", option)
+	w.StatusIsErr = false
+	return nil
 }
 
 // Draw renders the window. Call each frame from ImGuiOverlay.
@@ -177,7 +255,28 @@ func (w *PropBrowserWindow) Draw() {
 	} else {
 		imgui.TextColored(imgui.NewVec4(0.7, 0.85, 1.0, 1.0), "Prop: "+w.SelectedID)
 		imgui.TextUnformatted("Node / Pool Tree")
-		imgui.TextDisabled("(tree editing lands in the next increment)")
+		if len(w.Tree) == 0 && w.SelectedID != "" {
+			_, _ = w.LoadTree(w.SelectedID)
+		}
+		imgui.BeginChildStrV("##PropTreeScroll", imgui.NewVec2(0, 180), imgui.ChildFlagsBorders, imgui.WindowFlagsNone)
+		for i := range w.Tree {
+			n := &w.Tree[i]
+			indent := ""
+			for d := 0; d < n.Depth; d++ { indent += "  " }
+			imgui.TextUnformatted(fmt.Sprintf("%s%s [pool:%s, %d options]", indent, n.ID, n.PoolName, n.OptionCount))
+		}
+		imgui.EndChild()
+		imgui.TextUnformatted("Add Option")
+		imgui.InputTextWithHint("##PropNewOption", "option id", &w.NewOptionID, imgui.InputTextFlagsNone, nil)
+		imgui.InputTextWithHint("##PropNewModel", "model path", &w.NewModel, imgui.InputTextFlagsNone, nil)
+		if imgui.Button("Add") && w.NewOptionID != "" {
+			if err := w.AddOption(w.SelectedID, "root", "type", w.NewOptionID, w.NewModel); err != nil {
+				w.StatusMsg = err.Error()
+				w.StatusIsErr = true
+			}
+			w.NewOptionID = ""
+			w.NewModel = ""
+		}
 		imgui.Separator()
 		imgui.TextUnformatted("Resolution Preview")
 		imgui.SliderIntV("Seed", &w.Seed, 0, 100000, "%d", imgui.SliderFlagsNone)

@@ -195,3 +195,164 @@ func (s *PropService) ResolvePropBrowser(id string, seed int64) (engine.PropBrow
 	}
 	return engine.PropBrowserResolution{PropID: res.PropID, LeafCount: len(leaves), Leaves: leaves}, nil
 }
+
+// GetProp returns a loaded prop tree by id.
+func (s *PropService) GetProp(id string) (*engine.Prop, error) {
+	return s.loadCached(id)
+}
+
+// propManifestPath finds the manifest path for an id.
+func (s *PropService) propManifestPath(id string) (string, error) {
+	props, err := s.ListProps("")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range props {
+		if p.ID == id {
+			return p.Path, nil
+		}
+	}
+	return "", fmt.Errorf("prop %q not found", id)
+}
+
+func (s *PropService) invalidate(id string) {
+	s.mu.Lock()
+	delete(s.cache, id)
+	s.mu.Unlock()
+}
+
+// SetSelection pins an option for a node path, validates, and persists.
+func (s *PropService) SetSelection(id, path, poolName, optionID string) error {
+	prop, err := s.GetProp(id)
+	if err != nil {
+		return err
+	}
+	if err := engine.SetSelection(prop, path, poolName, optionID); err != nil {
+		return err
+	}
+	if errs := engine.ValidateProp(prop); len(errs) > 0 {
+		return fmt.Errorf("prop validation failed: %s", strings.Join(errs, "; "))
+	}
+	manifest, err := s.propManifestPath(id)
+	if err != nil {
+		return err
+	}
+	if err := engine.SavePropManifest(manifest, prop); err != nil {
+		return err
+	}
+	s.invalidate(id)
+	return nil
+}
+
+// CloneProp deep-copies a prop to a new id, persists it, and returns the new manifest path.
+func (s *PropService) CloneProp(sourceID, newID string) (string, error) {
+	prop, err := s.GetProp(sourceID)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(newID) == "" {
+		return "", fmt.Errorf("new prop id is empty")
+	}
+	clone := engine.CloneProp(prop, newID)
+	if clone == nil {
+		return "", fmt.Errorf("failed to clone prop %q", sourceID)
+	}
+	path := filepath.Join(s.resolvePropsDir(), newID+".prop.json")
+	if err := engine.SavePropManifest(path, clone); err != nil {
+		return "", err
+	}
+	s.invalidate(newID)
+	return filepath.ToSlash(path), nil
+}
+
+// SaveProp persists the cached prop tree to its manifest.
+func (s *PropService) SaveProp(id string) error {
+	prop, err := s.GetProp(id)
+	if err != nil {
+		return err
+	}
+	if errs := engine.ValidateProp(prop); len(errs) > 0 {
+		return fmt.Errorf("prop validation failed: %s", strings.Join(errs, "; "))
+	}
+	manifest, err := s.propManifestPath(id)
+	if err != nil {
+		return err
+	}
+	return engine.SavePropManifest(manifest, prop)
+}
+
+// DeleteProp removes a prop manifest by id.
+func (s *PropService) DeleteProp(id string) error {
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("prop id is empty")
+	}
+	manifest, err := s.propManifestPath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(manifest); err != nil {
+		return fmt.Errorf("delete prop manifest: %w", err)
+	}
+	s.invalidate(id)
+	return nil
+}
+
+// PropTreeBrowser returns a flat tree representation for the editor.
+func (s *PropService) PropTreeBrowser(id string) ([]engine.PropTreeNode, error) {
+	prop, err := s.GetProp(id)
+	if err != nil { return nil, err }
+	var out []engine.PropTreeNode
+	var visit func(*engine.Node, int)
+	visit = func(n *engine.Node, depth int) {
+		if n == nil { return }
+		name, count := "", 0
+		if n.TypePool != nil { name, count = n.TypePool.Name, len(n.TypePool.Options) }
+		out = append(out, engine.PropTreeNode{ID: n.ID, PoolName: name, OptionCount: count, Depth: depth})
+		for _, c := range n.Children { visit(c, depth+1) }
+	}
+	visit(prop.Root, 0)
+	return out, nil
+}
+
+func (s *PropService) AddPropOptionBrowser(id, path, pool, option, model string) error {
+	prop, err := s.GetProp(id)
+	if err != nil { return err }
+	node, err := engine.FindNode(prop.Root, path)
+	if err != nil { return err }
+	var target *engine.Pool
+	if node.TypePool != nil && (pool == "" || node.TypePool.Name == pool) { target = node.TypePool }
+	if target == nil {
+		for i := range node.TypePool.Options {
+			sub := node.TypePool.Options[i].Payload.SubPools
+			for j := range sub { if sub[j].Name == pool { target = sub[j] } }
+		}
+	}
+	if target == nil { return fmt.Errorf("pool %q not found at node %q", pool, path) }
+	if err := engine.SetOption(target, option, option, engine.OptionPayload{Model: model}); err != nil { return err }
+	if errs := engine.ValidateProp(prop); len(errs) > 0 { return fmt.Errorf("validation failed: %s", strings.Join(errs, "; ")) }
+	manifest, err := s.propManifestPath(id)
+	if err != nil { return err }
+	if err := engine.SavePropManifest(manifest, prop); err != nil { return err }
+	s.invalidate(id)
+	return nil
+}
+
+func (s *PropService) RemovePropOptionBrowser(id, path, pool, option string) error {
+	prop, err := s.GetProp(id)
+	if err != nil { return err }
+	node, err := engine.FindNode(prop.Root, path)
+	if err != nil { return err }
+	target := node.TypePool
+	if target == nil { return fmt.Errorf("no pool at node %q", path) }
+	if err := engine.RemoveOption(target, option); err != nil { return err }
+	if errs := engine.ValidateProp(prop); len(errs) > 0 { return fmt.Errorf("validation failed: %s", strings.Join(errs, "; ")) }
+	manifest, err := s.propManifestPath(id)
+	if err != nil { return err }
+	if err := engine.SavePropManifest(manifest, prop); err != nil { return err }
+	s.invalidate(id)
+	return nil
+}
+
+func (s *PropService) PinPropSelectionBrowser(id, path, pool, option string) error {
+	return s.SetSelection(id, path, pool, option)
+}

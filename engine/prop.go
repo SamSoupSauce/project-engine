@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // PoolMode controls how an option is selected from a Pool.
@@ -45,8 +46,9 @@ type Node struct {
 
 // Prop is a compositional GameObject whose identity is a tree of nodes.
 type Prop struct {
-	ID   string
-	Root *Node
+	ID     string
+	Root   *Node
+	Pinned map[string]string `json:"pinned,omitempty"`
 }
 
 // ResolvedLeaf is a concrete resolved node.
@@ -123,7 +125,14 @@ func Resolve(prop *Prop, opts ResolveOptions) (*ResolvedProp, error) {
 		return nil, nil
 	}
 	result := &ResolvedProp{PropID: prop.ID}
-	resolveNode(prop.Root, opts, result, map[*Node]bool{})
+	merged := ResolveOptions{Seed: opts.Seed, Selections: make(map[string]string)}
+	for k, v := range prop.Pinned {
+		merged.Selections[k] = v
+	}
+	for k, v := range opts.Selections {
+		merged.Selections[k] = v
+	}
+	resolveNode(prop.Root, merged, result, map[*Node]bool{})
 	return result, nil
 }
 
@@ -189,4 +198,135 @@ func LoadPropManifest(path string) (*Prop, error) {
 		return nil, fmt.Errorf("parse manifest: %w", err)
 	}
 	return &prop, nil
+}
+
+// findNodeByID performs a depth-first search for a node by ID.
+func findNodeByID(n *Node, id string) *Node {
+	if n == nil {
+		return nil
+	}
+	if n.ID == id {
+		return n
+	}
+	for _, child := range n.Children {
+		if found := findNodeByID(child, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+// FindNode resolves a node path such as "root/body/handle", "body/handle", or "handle".
+// Paths are matched against node IDs from the given root downward.
+func FindNode(root *Node, path string) (*Node, error) {
+	if root == nil {
+		return nil, fmt.Errorf("node root is nil")
+	}
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return nil, fmt.Errorf("node path is empty")
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) > 1 && parts[0] == root.ID {
+		parts = parts[1:]
+	}
+	// A single bare name may refer to any descendant.
+	if len(parts) == 1 && parts[0] != root.ID {
+		if found := findNodeByID(root, parts[0]); found != nil {
+			return found, nil
+		}
+	}
+	current := root
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		if part == current.ID && len(parts) == 1 {
+			return current, nil
+		}
+		found := false
+		for _, child := range current.Children {
+			if child != nil && child.ID == part {
+				current = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("node %q not found in path %q", part, trimmed)
+		}
+	}
+	return current, nil
+}
+
+// SetSelection pins an explicit option choice for a node path.
+func SetSelection(prop *Prop, path, poolName, optionID string) error {
+	if prop == nil {
+		return fmt.Errorf("prop is nil")
+	}
+	node, err := FindNode(prop.Root, path)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(optionID) == "" {
+		return fmt.Errorf("option id is empty")
+	}
+	if prop.Pinned == nil {
+		prop.Pinned = make(map[string]string)
+	}
+	prop.Pinned[node.ID] = optionID
+	if strings.TrimSpace(poolName) != "" {
+		prop.Pinned[node.ID+"/"+poolName] = optionID
+	}
+	return nil
+}
+
+// SetOption adds or replaces an option in a pool by id.
+func SetOption(pool *Pool, id, label string, payload OptionPayload) error {
+	if pool == nil {
+		return fmt.Errorf("pool is nil")
+	}
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("option id is empty")
+	}
+	for i := range pool.Options {
+		if pool.Options[i].ID == id {
+			pool.Options[i].Label = label
+			pool.Options[i].Payload = payload
+			return nil
+		}
+	}
+	pool.Options = append(pool.Options, PoolOption{ID: id, Label: label, Payload: payload})
+	return nil
+}
+
+// RemoveOption removes an option from a pool by id.
+func RemoveOption(pool *Pool, id string) error {
+	if pool == nil {
+		return fmt.Errorf("pool is nil")
+	}
+	for i := range pool.Options {
+		if pool.Options[i].ID == id {
+			pool.Options = append(pool.Options[:i], pool.Options[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("option %q not found", id)
+}
+
+// CloneProp creates a deep copy of a Prop with a new id.
+func CloneProp(prop *Prop, newID string) *Prop {
+	if prop == nil {
+		return nil
+	}
+	data, err := json.Marshal(prop)
+	if err != nil {
+		return nil
+	}
+	var clone Prop
+	if err := json.Unmarshal(data, &clone); err != nil {
+		return nil
+	}
+	clone.ID = newID
+	return &clone
 }

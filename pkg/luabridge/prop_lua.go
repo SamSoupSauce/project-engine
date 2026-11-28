@@ -61,6 +61,49 @@ func (s *PropService) registerPropLuaAPIs() {
 		L.Push(t)
 		return 1
 	})
+	set("get", func(L *lua.LState) int {
+		id := L.CheckString(1)
+		prop, err := s.GetProp(id)
+		if err != nil {
+			L.RaiseError("%s", err.Error())
+			return 0
+		}
+		t := L.NewTable()
+		L.SetField(t, "id", lua.LString(prop.ID))
+		L.Push(t)
+		return 1
+	})
+	set("select", func(L *lua.LState) int {
+		id, path, pool, optionID := L.CheckString(1), L.CheckString(2), L.CheckString(3), L.CheckString(4)
+		if err := s.SetSelection(id, path, pool, optionID); err != nil {
+			L.RaiseError("%s", err.Error())
+		}
+		return 0
+	})
+	set("clone", func(L *lua.LState) int {
+		source, newID := L.CheckString(1), L.CheckString(2)
+		path, err := s.CloneProp(source, newID)
+		if err != nil {
+			L.RaiseError("%s", err.Error())
+			return 0
+		}
+		L.Push(lua.LString(path))
+		return 1
+	})
+	set("save", func(L *lua.LState) int {
+		id := L.CheckString(1)
+		if err := s.SaveProp(id); err != nil {
+			L.RaiseError("%s", err.Error())
+		}
+		return 0
+	})
+	set("delete", func(L *lua.LState) int {
+		id := L.CheckString(1)
+		if err := s.DeleteProp(id); err != nil {
+			L.RaiseError("%s", err.Error())
+		}
+		return 0
+	})
 	set("validate", func(L *lua.LState) int {
 		id := L.CheckString(1)
 		errs, err := s.ValidateProp(id)
@@ -121,4 +164,36 @@ func (s *PropService) registerPropLuaAPIs() {
 			return strings.TrimRight(b.String(), "\n"), nil
 		},
 	})
+
+	registerSimple := func(name, usage, desc string, handler func([]string) (string, error)) {
+		s.Bridge.Shell().RegisterNative(ShellCommandDef{
+			Name: name, Description: desc, Usage: usage,
+			Examples: []string{usage}, GoHandler: func(ctx ExecutionContext) (string, error) {
+				return handler(ctx.Args[1:])
+			},
+		})
+	}
+	registerSimple("prop_get", "prop_get <id>", "Shows a prop manifest summary.", func(a []string) (string, error) {
+		if len(a) < 1 { return "", fmt.Errorf("prop_get requires id") }
+		p, err := s.GetProp(a[0])
+		if err != nil { return "", err }
+		return "Prop: " + p.ID, nil
+	})
+	registerSimple("prop_select", "prop_select <id> <path> <pool> <option>", "Pins a prop option.", func(a []string) (string, error) {
+		if len(a) < 4 { return "", fmt.Errorf("prop_select requires id, path, pool, option") }
+		if err := s.SetSelection(a[0], a[1], a[2], a[3]); err != nil { return "", err }
+		return "Pinned " + a[0], nil
+	})
+	registerSimple("prop_clone", "prop_clone <source> <newId>", "Clones a prop.", func(a []string) (string, error) {
+		if len(a) < 2 { return "", fmt.Errorf("prop_clone requires source and new id") }
+		path, err := s.CloneProp(a[0], a[1])
+		if err != nil { return "", err }
+		return "Cloned to " + path, nil
+	})
+	registerSimple("prop_save", "prop_save <id>", "Saves a prop manifest.", func(a []string) (string, error) {
+		if len(a) < 1 { return "", fmt.Errorf("prop_save requires id") }
+		if err := s.SaveProp(a[0]); err != nil { return "", err }
+		return "Saved " + a[0], nil
+	})
+
 }

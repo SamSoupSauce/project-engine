@@ -59,6 +59,31 @@ func (a *propBrowserAdapter) ResolveProp(id string, seed int64) (engine.PropBrow
 	return a.svc.ResolvePropBrowser(id, seed)
 }
 
+func (a *propBrowserAdapter) PropTree(id string) ([]engine.PropTreeNode, error) {
+	if a.svc == nil {
+		return nil, nil
+	}
+	return a.svc.PropTreeBrowser(id)
+}
+func (a *propBrowserAdapter) AddOption(id, path, pool, option, model string) error {
+	if a.svc == nil {
+		return nil
+	}
+	return a.svc.AddPropOptionBrowser(id, path, pool, option, model)
+}
+func (a *propBrowserAdapter) RemoveOption(id, path, pool, option string) error {
+	if a.svc == nil {
+		return nil
+	}
+	return a.svc.RemovePropOptionBrowser(id, path, pool, option)
+}
+func (a *propBrowserAdapter) PinSelection(id, path, pool, option string) error {
+	if a.svc == nil {
+		return nil
+	}
+	return a.svc.PinPropSelectionBrowser(id, path, pool, option)
+}
+
 func parseDemoServerFlags(args []string) (demoServerOptions, error) {
 	fs := flag.NewFlagSet("demo", flag.ContinueOnError)
 	var opts demoServerOptions
